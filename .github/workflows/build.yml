@@ -1,0 +1,38 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Swift-Version
+        run: swift --version
+
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Tests (CadenceCore)
+        run: swift test --filter CadenceCoreTests
+
+      - name: App bauen
+        run: ./scripts/build-app.sh
+
+      - name: App verpacken
+        run: ditto -c -k --keepParent build/Cadence.app build/Cadence.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cadence-app
+          path: build/Cadence.zip
+          retention-days: 14
