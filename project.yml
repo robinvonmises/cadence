@@ -1,0 +1,37 @@
+# Optional: Xcode-Projekt erzeugen mit `brew install xcodegen && xcodegen`
+# (für Debugging in Xcode und Signieren mit deinem Apple-Developer-Team).
+name: Cadence
+options:
+  bundleIdPrefix: com.robinvonmises
+  deploymentTarget:
+    macOS: "14.4"
+packages:
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit.git
+    from: 1.1.1
+targets:
+  CadenceCore:
+    type: framework
+    platform: macOS
+    sources: [Sources/CadenceCore]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.robinvonmises.cadence.core
+      GENERATE_INFOPLIST_FILE: YES
+  Cadence:
+    type: application
+    platform: macOS
+    sources: [Sources/Cadence]
+    dependencies:
+      - target: CadenceCore
+      - package: WhisperKit
+        product: WhisperKit
+      - package: WhisperKit
+        product: SpeakerKit
+    info:
+      path: Resources/Info.plist
+    entitlements:
+      path: Resources/Cadence.entitlements
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.robinvonmises.cadence
+      ENABLE_HARDENED_RUNTIME: YES
+      SWIFT_VERSION: 5.0
