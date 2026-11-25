@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release-Tag, an den die App gehängt wird (z. B. v0.1.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Version setzen
+        run: |
+          VERSION="${TAG#v}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Resources/Info.plist || true
+
+      - name: Tests (CadenceCore)
+        run: swift test --filter CadenceCoreTests
+
+      - name: App bauen
+        run: ./scripts/build-app.sh
+
+      - name: App verpacken
+        run: ditto -c -k --keepParent build/Cadence.app build/Cadence.zip
+
+      - name: An das Release hängen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" build/Cadence.zip --clobber
