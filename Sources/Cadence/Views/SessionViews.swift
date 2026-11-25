@@ -54,6 +54,7 @@ struct LiveSessionView: View {
             VStack(alignment: .leading, spacing: 4) {
                 TextField("Titel", text: sessionBinding.title)
                     .textFieldStyle(.plain)
+                    .focusEffectDisabled()
                     .font(.system(.title2, design: .rounded).weight(.bold))
                 HStack(spacing: 8) {
                     if recorder.isRecording {
@@ -323,6 +324,7 @@ struct SavedSessionView: View {
         VStack(alignment: .leading, spacing: 8) {
             TextField("Titel", text: $draft.title)
                 .textFieldStyle(.plain)
+                .focusEffectDisabled()
                 .font(.system(.title2, design: .rounded).weight(.bold))
             HStack(spacing: 8) {
                 InfoPill(icon: "calendar", text: draft.startedAt.formatted(date: .abbreviated, time: .shortened))

@@ -110,6 +110,7 @@ struct NewRecordingView: View {
             Text("Worum geht's?").sectionTitle()
             TextField("z. B. Kickoff mit Kunde X", text: $recorder.draft.title)
                 .textFieldStyle(.plain)
+                .focusEffectDisabled()
                 .font(.system(size: 18, weight: .medium, design: .rounded))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
@@ -393,6 +394,7 @@ private struct PartySetupCard: View {
                     set: { draft.renameParty(party.id, to: $0) }
                 ))
                 .textFieldStyle(.plain)
+                .focusEffectDisabled()
                 .font(.callout.weight(.semibold))
                 Spacer()
                 if !isOwnersParty {
@@ -423,6 +425,7 @@ private struct PartySetupCard: View {
                     Image(systemName: "person.badge.plus").foregroundStyle(party.color.color)
                     TextField("Name + ⏎", text: $typed)
                         .textFieldStyle(.plain)
+                        .focusEffectDisabled()
                         .frame(width: 110)
                         .focused($focused)
                         .onSubmit {

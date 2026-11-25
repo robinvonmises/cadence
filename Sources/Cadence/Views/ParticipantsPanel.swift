@@ -60,8 +60,8 @@ struct SpeakerDock: View {
                     }
                     newPersonField
                 }
-                .padding(.horizontal, 2)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
             }
 
             HStack(spacing: 8) {
@@ -90,6 +90,7 @@ struct SpeakerDock: View {
                 Image(systemName: "person.badge.plus").foregroundStyle(Theme.accent)
                 TextField("Name + ⏎", text: $typedName)
                     .textFieldStyle(.plain)
+                    .focusEffectDisabled()
                     .frame(width: 130)
                     .focused($nameFocused)
                     .onSubmit { submit(typedName) }
