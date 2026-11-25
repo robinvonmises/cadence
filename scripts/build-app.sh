@@ -23,7 +23,7 @@ APP="$APP_DIR/Cadence.app"
 
 # Nur Command Line Tools ohne Xcode: Neuere SDKs verlangen das SwiftUIMacros-Plugin, das nur
 # Xcode mitbringt. Dann das neueste SDK der Command Line Tools mit Major-Version <= 26 nehmen.
-if [ -z "${SDKROOT:-}" ] && [[ "$(xcode-select -p 2>/dev/null)" == *CommandLineTools* ]]; then
+if [ -z "${SDKROOT:-}" ] && [ -z "${DEVELOPER_DIR:-}" ] && [[ "$(xcode-select -p 2>/dev/null)" == *CommandLineTools* ]]; then
   CLT_SDKS=/Library/Developer/CommandLineTools/SDKs
   FALLBACK="$(ls -d "$CLT_SDKS"/MacOSX[0-9]*.sdk 2>/dev/null \
     | sed -E 's#.*/MacOSX([0-9]+)(\.[0-9]+)?\.sdk#\1 &#' \
