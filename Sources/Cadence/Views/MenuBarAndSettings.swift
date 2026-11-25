@@ -88,7 +88,7 @@ struct SettingsView: View {
                         switch models.status {
                         case .ready: Label("Bereit", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                         case .downloading(let p): Text("Wird geladen – \(Int(p * 100)) %")
-                        case .loading: Text("Wird vorbereitet …")
+                        case .loading, .warmingUp: Text("Wird vorbereitet …")
                         case .failed(let message): Text(message).foregroundStyle(.red)
                         case .idle: Text("Nicht geladen")
                         }

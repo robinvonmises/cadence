@@ -248,7 +248,7 @@ struct ModelStatusBanner: View {
                         .buttonStyle(.borderedProminent)
                 }
             }
-        case .idle, .ready:
+        case .idle, .ready, .warmingUp:
             EmptyView()
         }
     }
