@@ -21,6 +21,26 @@ struct NewRecordingView: View {
     private var otherApps: [MeetingApp] { apps.filter { !$0.isKnownMeetingApp } }
 
     var body: some View {
+        // GeometryReader meldet als Mindestgröße 0. Ohne ihn fragt macOS das Layout mit Breite 0 ab,
+        // umbrechende Texte werden dann tausende Punkte hoch und das Fenster rutscht ins Leere.
+        GeometryReader { geometry in
+            content
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+        }
+        .background(backgroundGlow)
+        .onAppear {
+            apps = AudioSourceCatalog.runningApps()
+            micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        }
+        .sheet(isPresented: $showConsent) {
+            ConsentSheet(message: $consentMessage) { confirmed in
+                showConsent = false
+                if confirmed { start(consent: true) }
+            }
+        }
+    }
+
+    private var content: some View {
         VStack(spacing: 18) {
             hero
             ModelStatusBanner()
@@ -45,19 +65,8 @@ struct NewRecordingView: View {
             .frame(maxHeight: .infinity)
         }
         .padding(24)
-        .frame(maxWidth: 1100, maxHeight: .infinity)
-        .frame(maxWidth: .infinity)
-        .background(backgroundGlow)
-        .onAppear {
-            apps = AudioSourceCatalog.runningApps()
-            micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        }
-        .sheet(isPresented: $showConsent) {
-            ConsentSheet(message: $consentMessage) { confirmed in
-                showConsent = false
-                if confirmed { start(consent: true) }
-            }
-        }
+        .frame(maxWidth: 1100, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 
     // MARK: Abschnitte
@@ -336,7 +345,7 @@ private struct ParticipantSetup: View {
             Text("Die Ziffern sind deine Tastenkürzel im Gespräch (⌃⌥ + Zahl). Bekannte Stimmen (\(Image(systemName: "waveform"))) erkennt Cadence nach dem Gespräch automatisch.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(3)
         }
     }
 

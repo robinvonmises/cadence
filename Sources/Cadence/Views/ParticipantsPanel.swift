@@ -385,7 +385,9 @@ struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? 300
+        // Bei Breite 0 (Mindestgrößen-Abfrage) nicht jedes Element in eine eigene Zeile stapeln.
+        let proposed = proposal.width ?? .infinity
+        let width = proposed < 1 ? .infinity : proposed
         var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
         for view in subviews {
             let size = view.sizeThatFits(.unspecified)
@@ -397,7 +399,8 @@ struct FlowLayout: Layout {
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
         }
-        return CGSize(width: width, height: y + rowHeight)
+        let usedWidth = width.isFinite ? width : max(0, x - spacing)
+        return CGSize(width: usedWidth, height: y + rowHeight)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {

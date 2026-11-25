@@ -190,7 +190,7 @@ struct Banner<Actions: View>: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.callout.weight(.semibold))
                 if let message {
-                    Text(message).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(message).font(.caption).foregroundStyle(.secondary).lineLimit(3)
                 }
                 if let progress {
                     ProgressView(value: progress).tint(color).frame(maxWidth: 260)
