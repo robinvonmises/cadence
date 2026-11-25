@@ -271,19 +271,11 @@ private struct ParticipantSetup: View {
     @State private var newPartyName = ""
     @State private var addingParty = false
 
-    /// Vorschläge: Stimmprofile zuerst (die erkennt Cadence wieder), dann Namen aus früheren Gesprächen.
+    /// Vorschläge aus der Personenliste: Personen mit bekannter Stimme zuerst.
     private var knownPeople: [KnownPerson] {
-        var seen = Set<String>()
-        var result: [KnownPerson] = []
-        for profile in voices.profiles.sorted(by: { $0.updatedAt > $1.updatedAt }) where seen.insert(profile.name.lowercased()).inserted {
-            result.append(KnownPerson(name: profile.name, partyName: profile.partyName, hasVoice: true))
-        }
-        for entry in store.entries {
-            for person in entry.session.people where !person.isMicrophoneOwner && seen.insert(person.name.lowercased()).inserted {
-                result.append(KnownPerson(name: person.name, partyName: entry.session.party(of: person)?.name, hasVoice: false))
-            }
-        }
-        return result
+        voices.contacts
+            .map { KnownPerson(name: $0.name, partyName: $0.partyName, hasVoice: voices.profile(named: $0.name) != nil) }
+            .sorted { ($0.hasVoice ? 0 : 1, $0.name) < ($1.hasVoice ? 0 : 1, $1.name) }
     }
 
     private var recentSessions: [Session] {

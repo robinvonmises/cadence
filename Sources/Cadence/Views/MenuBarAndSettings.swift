@@ -170,6 +170,9 @@ private struct VoiceProfilesSettings: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            Text("Namen, Firmen und Stimmen einzelner Personen bearbeitest du im Hauptfenster unter „Personen“.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Section("Bekannte Stimmen") {
                 if voices.profiles.isEmpty {

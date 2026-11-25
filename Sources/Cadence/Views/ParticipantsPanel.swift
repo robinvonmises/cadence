@@ -12,21 +12,13 @@ struct SpeakerDock: View {
     @State private var note = ""
     @FocusState private var nameFocused: Bool
 
-    /// Namen aus früheren Gesprächen als Vorschläge.
+    /// Namen aus der Personenliste als Vorschläge.
     private var knownPeople: [(name: String, party: String?)] {
-        var seen = Set(session.people.map { $0.name.lowercased() })
-        var result: [(name: String, party: String?)] = []
-        for profile in voices.profiles where seen.insert(profile.name.lowercased()).inserted {
-            result.append((name: profile.name, party: profile.partyName))
-        }
-        for entry in store.entries {
-            for person in entry.session.people where !person.isMicrophoneOwner {
-                if seen.insert(person.name.lowercased()).inserted {
-                    result.append((name: person.name, party: entry.session.party(of: person)?.name))
-                }
-            }
-        }
-        return result.sorted { $0.name < $1.name }
+        let present = Set(session.people.map { $0.name.lowercased() })
+        return voices.contacts
+            .filter { !present.contains($0.name.lowercased()) }
+            .map { (name: $0.name, party: $0.partyName) }
+            .sorted { $0.name < $1.name }
     }
 
     private var suggestions: [(name: String, party: String?)] {

@@ -14,6 +14,8 @@ struct ContentView: View {
             switch navigation.selection {
             case .live where recorder.session != nil && recorder.isBusy:
                 LiveSessionView()
+            case .people:
+                PeopleView()
             case .saved(let id):
                 if let entry = store.entries.first(where: { $0.id == id }) {
                     SavedSessionView(entry: entry)
@@ -104,6 +106,15 @@ struct SidebarView: View {
                     .padding(.vertical, 4)
                     .tag(Navigation.Selection.newRecording)
                 }
+                HStack(spacing: 10) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.accent.opacity(0.12)).frame(width: 30, height: 30)
+                        Image(systemName: "person.2.fill").font(.caption).foregroundStyle(Theme.accent)
+                    }
+                    Text("Personen").font(.callout.weight(.medium))
+                }
+                .padding(.vertical, 3)
+                .tag(Navigation.Selection.people)
             }
 
             ForEach(groups, id: \.title) { group in
