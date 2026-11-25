@@ -146,21 +146,32 @@ actor TranscriptionEngine {
     }
 }
 
+/// Ergebnis der Sprechertrennung: wer wann spricht und ein Stimm-Fingerabdruck je Stimme.
+struct DiarizationOutput: Sendable {
+    var turns: [DiarizedTurn]
+    var embeddings: [Int: [Float]]
+}
+
 /// Lokale Sprechertrennung mit SpeakerKit (pyannote, Core ML).
 actor DiarizationEngine {
     private var speakerKit: SpeakerKit?
 
-    func diarize(samples: [Float], expectedSpeakers: Int?) async throws -> [DiarizedTurn] {
-        guard samples.count > Int(SpeechChunker.sampleRate * 2) else { return [] }
+    func diarize(samples: [Float], expectedSpeakers: Int?) async throws -> DiarizationOutput {
+        guard samples.count > Int(SpeechChunker.sampleRate * 2) else { return DiarizationOutput(turns: [], embeddings: [:]) }
         if speakerKit == nil {
             speakerKit = try await SpeakerKit(PyannoteConfig(downloadBase: ModelStorage.folder.path, load: true, verbose: false))
         }
-        guard let speakerKit else { return [] }
+        guard let speakerKit else { return DiarizationOutput(turns: [], embeddings: [:]) }
         let options = PyannoteDiarizationOptions(numberOfSpeakers: expectedSpeakers)
         let result = try await speakerKit.diarize(audioArray: samples, options: options)
-        return result.segments.compactMap { segment in
+        let turns: [DiarizedTurn] = result.segments.compactMap { segment in
             guard let id = segment.speaker.speakerId else { return nil }
             return DiarizedTurn(clusterID: id, start: Double(segment.startTime), end: Double(segment.endTime))
         }
+        var embeddings: [Int: [Float]] = [:]
+        for (cluster, embedding) in result.speakerCentroidEmbeddings {
+            if let clean = VoiceMatcher.sanitized(embedding.map { Float($0) }) { embeddings[cluster] = clean }
+        }
+        return DiarizationOutput(turns: turns, embeddings: embeddings)
     }
 }

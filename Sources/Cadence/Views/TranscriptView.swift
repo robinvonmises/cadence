@@ -8,6 +8,9 @@ struct TranscriptView: View {
     var filter: String = ""
     var onSeek: ((Double) -> Void)?
     var playingTime: Double?
+    /// Schnellzuordnung „Wer war das?“ – (Wortbeitrag, Person, ist der neueste Beitrag).
+    /// Ohne eigene Aktion werden die Sätze des Beitrags direkt zugeordnet.
+    var onAssignTurn: ((Turn, UUID, Bool) -> Void)?
 
     @State private var autoScroll = true
     @State private var editing: TranscriptSegment?
@@ -76,7 +79,9 @@ struct TranscriptView: View {
                     if session.segments.isEmpty {
                         emptyState
                     }
-                    ForEach(items) { item in
+                    let allItems = items
+                    let latestTurnID = allItems.last(where: { if case .turn = $0 { return true } else { return false } })?.id
+                    ForEach(allItems) { item in
                         switch item {
                         case .turn(let turn):
                             TurnView(
@@ -84,7 +89,8 @@ struct TranscriptView: View {
                                 turn: turn,
                                 playingTime: playingTime,
                                 onSeek: onSeek,
-                                onEdit: { editing = $0 }
+                                onEdit: { editing = $0 },
+                                onQuickAssign: { personID in assign(turn, to: personID, isLatest: turn.id == latestTurnID) }
                             )
                             .id(item.id)
                         case .marker(let marker):
@@ -125,6 +131,14 @@ struct TranscriptView: View {
         }
     }
 
+    private func assign(_ turn: Turn, to personID: UUID, isLatest: Bool) {
+        if let onAssignTurn {
+            onAssignTurn(turn, personID, isLatest)
+        } else {
+            session.assign(segments: turn.segments.map(\.id), to: personID)
+        }
+    }
+
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: isLive ? "waveform" : "text.bubble")
@@ -148,6 +162,7 @@ private struct TurnView: View {
     let playingTime: Double?
     let onSeek: ((Double) -> Void)?
     let onEdit: (TranscriptSegment) -> Void
+    let onQuickAssign: (UUID) -> Void
 
     private var color: Color { session.color(for: turn.personID) }
     private var unassigned: Bool { turn.personID == nil && !turn.isOwner }
@@ -167,10 +182,42 @@ private struct TurnView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(bubbleBackground, in: BubbleShape(isOwner: turn.isOwner))
+                if unassigned { quickAssign }
             }
 
             if turn.isOwner { avatar } else { Spacer(minLength: 80) }
         }
+    }
+
+    /// Ein Klick genügt: Personen des Gesprächs direkt unter dem Beitrag.
+    private var quickAssign: some View {
+        let candidates = session.hotkeyPeople
+        return FlowLayout(spacing: 6) {
+            ForEach(candidates) { person in
+                Button {
+                    onQuickAssign(person.id)
+                } label: {
+                    HStack(spacing: 5) {
+                        Circle().fill(session.color(for: person.id)).frame(width: 7, height: 7)
+                        Text(person.name).lineLimit(1)
+                    }
+                    .font(.caption.weight(.medium))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(session.color(for: person.id).opacity(0.12), in: Capsule())
+                    .overlay(Capsule().strokeBorder(session.color(for: person.id).opacity(0.35), lineWidth: 0.5))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Dieser Beitrag ist von \(person.name)")
+            }
+            if candidates.isEmpty {
+                Text("Lege unten Teilnehmer an, dann kannst du hier per Klick zuordnen.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.top, 2)
     }
 
     private var bubbleBackground: Color {

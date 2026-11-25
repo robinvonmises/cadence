@@ -19,6 +19,12 @@ final class SessionStore: ObservableObject {
     }
 
     @Published private(set) var entries: [Entry] = []
+    /// Lernt bei jedem Speichern die zugeordneten Stimmen dazu.
+    let voices: VoiceProfileStore
+
+    init(voices: VoiceProfileStore) {
+        self.voices = voices
+    }
 
     static let sessionFileName = "session.json"
 
@@ -74,6 +80,7 @@ final class SessionStore: ObservableObject {
         } else {
             entries.insert(Entry(id: session.id, folder: folder, session: session), at: 0)
         }
+        voices.learn(from: session)
         return folder
     }
 

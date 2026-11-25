@@ -23,6 +23,10 @@ final class RecordingController: ObservableObject {
     @Published private(set) var backlog: Int = 0
     @Published private(set) var currentSpeakerID: UUID?
     @Published var errorMessage: String?
+    /// Namen, die nach dem letzten Gespräch per Stimmprofil erkannt wurden (für einen Hinweis).
+    @Published var lastRecognizedNames: [String] = []
+    /// Vorbereitung des nächsten Gesprächs (Startbildschirm).
+    @Published var draft = MeetingDraft.fromDefaults()
     /// Wird gesetzt, wenn per Hotkey das Namensfeld fokussiert werden soll.
     @Published var focusSpeakerFieldRequest = UUID()
 
@@ -50,10 +54,11 @@ final class RecordingController: ObservableObject {
 
     // MARK: - Start
 
-    func start(title: String, target: SystemAudioTarget, consentConfirmed: Bool) async {
+    func start(draft: MeetingDraft, target: SystemAudioTarget, consentConfirmed: Bool) async {
         guard phase == .idle else { return }
         phase = .preparing
         errorMessage = nil
+        lastRecognizedNames = []
 
         let defaults = UserDefaults.standard
         guard await MicrophoneCapture.requestPermission() else {
@@ -61,14 +66,7 @@ final class RecordingController: ObservableObject {
             return
         }
 
-        var newSession = Session.new(
-            title: title.isEmpty ? "Gespräch" : title,
-            ownerName: defaults.string(forKey: SettingsKey.ownerName) ?? Defaults.ownerName,
-            parties: [
-                Party(name: defaults.string(forKey: SettingsKey.ownPartyName) ?? "Wir", color: .blue),
-                Party(name: defaults.string(forKey: SettingsKey.otherPartyName) ?? "Kunde", color: .orange)
-            ]
-        )
+        var newSession = draft.makeSession(ownerName: defaults.string(forKey: SettingsKey.ownerName) ?? Defaults.ownerName)
         newSession.sourceDescription = target.label
         let language = LanguageOption(rawValue: defaults.string(forKey: SettingsKey.language) ?? "de") ?? .german
         newSession.language = language.whisperCode
@@ -130,6 +128,7 @@ final class RecordingController: ObservableObject {
 
         startDate = Date()
         session = newSession
+        self.draft = .fromDefaults()
         currentSpeakerID = nil
         elapsed = 0
         phase = .recording
@@ -176,6 +175,18 @@ final class RecordingController: ObservableObject {
         current.tagSpeaker(personID, at: max(0, currentTime - 1.0))
         session = current
         currentSpeakerID = personID
+    }
+
+    /// „Wer war das?“ live beantwortet: Der Beitrag gehört dieser Person. War es der neueste Beitrag,
+    /// spricht sie vermutlich noch – dann gilt sie ab Beginn des Beitrags als aktueller Sprecher.
+    func assignTurn(segmentIDs: [UUID], start: Double, to personID: UUID, isLatest: Bool) {
+        guard var current = session else { return }
+        current.assign(segments: segmentIDs, to: personID)
+        if isLatest && isRecording {
+            current.tagSpeaker(personID, at: start)
+            currentSpeakerID = personID
+        }
+        session = current
     }
 
     func setSpeaker(hotkeyIndex index: Int) {
@@ -334,8 +345,18 @@ final class RecordingController: ObservableObject {
             let samples = try await Task.detached(priority: .userInitiated) {
                 try AudioMixdown.loadMono16k(systemURL)
             }.value
-            let turns = try await diarizer.diarize(samples: samples, expectedSpeakers: nil)
-            SpeakerResolver.finalize(&session, turns: turns)
+            let output = try await diarizer.diarize(samples: samples, expectedSpeakers: nil)
+            // Stimm-Fingerabdrücke gehören zu den Cluster-Nummern dieses Laufs.
+            session.clusterAssignments = [:]
+            session.recognizedClusters = nil
+            for index in session.segments.indices { session.segments[index].clusterID = nil }
+            session.clusterEmbeddings = output.embeddings.isEmpty ? nil : output.embeddings
+            // Erst deine Live-Zuordnungen, dann bekannte Stimmen für alles, was noch offen ist.
+            SpeakerResolver.finalize(&session, turns: output.turns)
+            let recognized = store.voices.recognize(in: &session)
+            if !recognized.isEmpty {
+                lastRecognizedNames = recognized
+            }
         } catch {
             errorMessage = "Stimmenerkennung fehlgeschlagen: \(error.localizedDescription). Deine Live-Zuordnungen bleiben erhalten."
         }

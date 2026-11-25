@@ -139,3 +139,121 @@ struct ExporterTests {
         #expect(TimeFormat.srt(62.345) == "00:01:02,345")
     }
 }
+
+struct CopyTextTests {
+    private func session() -> Session {
+        var session = Session.new(title: "Copy", ownerName: "Wayne")
+        let anna = Person(name: "Anna", partyID: session.parties[1].id)
+        session.people.append(anna)
+        session.segments = [
+            TranscriptSegment(source: .microphone, start: 0, end: 2, text: "Hallo."),
+            TranscriptSegment(source: .system, start: 65, end: 67, text: "Hi!", manualPersonID: anna.id)
+        ]
+        SpeakerResolver.resolve(&session)
+        return session
+    }
+
+    @Test func testAllFourVariants() {
+        let exporter = SessionExporter(session: session())
+        #expect(exporter.plainText(includeSpeakers: true, includeTimestamps: true) == "[0:00] Wayne: Hallo.\n\n[1:05] Anna: Hi!")
+        #expect(exporter.plainText(includeSpeakers: true, includeTimestamps: false) == "Wayne: Hallo.\n\nAnna: Hi!")
+        #expect(exporter.plainText(includeSpeakers: false, includeTimestamps: true) == "[0:00] Hallo.\n\n[1:05] Hi!")
+        #expect(exporter.plainText(includeSpeakers: false, includeTimestamps: false) == "Hallo.\n\nHi!")
+    }
+}
+
+struct SessionSetupTests {
+    @Test func testParticipantsPreparedBeforeStart() {
+        let parties = [Party(name: "Intern", color: .blue)]
+        let tom = Person(name: " Tom ", partyID: parties[0].id)
+        let duplicate = Person(name: "wayne", partyID: parties[0].id)
+        let session = Session.new(title: "Weekly", ownerName: "Wayne", parties: parties, participants: [tom, duplicate])
+        #expect(session.people.map(\.name) == ["Wayne", "Tom"])
+        #expect(session.hotkeyPeople.map(\.name) == ["Tom"])
+        #expect(session.people.allSatisfy { $0.partyID == parties[0].id })
+    }
+
+    @Test func testOldSessionJSONWithoutNewFieldsStillDecodes() throws {
+        var session = Session.new(title: "Alt", ownerName: "Wayne")
+        session.startedAt = Date(timeIntervalSince1970: 1_764_072_000)
+        let data = try SessionExporter.encoder.encode(session)
+        var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object.removeValue(forKey: "clusterEmbeddings")
+        object.removeValue(forKey: "recognizedClusters")
+        let stripped = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try SessionExporter.decoder.decode(Session.self, from: stripped)
+        #expect(decoded.clusterEmbeddings == nil)
+        #expect(decoded.title == "Alt")
+    }
+}
+
+struct VoiceProfileTests {
+    private let annaVoice: [Float] = [0.9, 0.1, 0.0, 0.2]
+    private let tomVoice: [Float] = [0.0, 0.8, 0.5, 0.1]
+
+    /// Gespräch mit zwei Clustern, Anna und Tom zugeordnet.
+    private func labeledSession() -> Session {
+        var session = Session.new(title: "Erstes", ownerName: "Wayne")
+        let anna = session.addPerson(named: "Anna", partyID: session.parties[1].id)
+        let tom = session.addPerson(named: "Tom", partyID: session.parties[1].id)
+        session.segments = [
+            TranscriptSegment(source: .system, start: 0, end: 10, text: "a", clusterID: 0),
+            TranscriptSegment(source: .system, start: 10, end: 20, text: "t", clusterID: 1),
+            TranscriptSegment(source: .system, start: 20, end: 22, text: "kurz", clusterID: 2)
+        ]
+        session.clusterAssignments = [0: anna.id, 1: tom.id]
+        session.clusterEmbeddings = [0: annaVoice, 1: tomVoice, 2: [0.3, 0.3, 0.3, 0.3]]
+        return session
+    }
+
+    @Test func testLearnsAndRecognizesInNextMeeting() {
+        var profiles: [VoiceProfile] = []
+        profiles.learn(from: labeledSession())
+        #expect(profiles.map(\.name).sorted() == ["Anna", "Tom"])
+        #expect(profiles.first { $0.name == "Anna" }?.partyName == "Kunde")
+
+        // Neues Gespräch: andere Cluster-Nummern, leicht veränderte Stimmen, Anna ist noch nicht angelegt.
+        var next = Session.new(title: "Zweites", ownerName: "Wayne")
+        next.segments = [
+            TranscriptSegment(source: .system, start: 0, end: 5, text: "x", clusterID: 0),
+            TranscriptSegment(source: .system, start: 5, end: 9, text: "y", clusterID: 1)
+        ]
+        next.clusterEmbeddings = [0: [0.02, 0.82, 0.48, 0.1], 1: [0.88, 0.12, 0.02, 0.21]]
+        let matches = VoiceMatcher.match(clusters: next.clusterEmbeddings!, profiles: profiles)
+        let names = next.applyRecognizedVoices(matches, profiles: profiles)
+        #expect(names.sorted() == ["Anna", "Tom"])
+        #expect(next.segments.map { next.person($0.personID)?.name } == ["Tom", "Anna"])
+        #expect(next.person(next.segments[1].personID)?.partyID == next.parties.first { $0.name == "Kunde" }?.id)
+    }
+
+    @Test func testUnknownVoiceStaysUnassigned() {
+        var profiles: [VoiceProfile] = []
+        profiles.learn(from: labeledSession())
+        let matches = VoiceMatcher.match(clusters: [0: [0.0, 0.0, -1.0, 0.9]], profiles: profiles)
+        #expect(matches.isEmpty)
+    }
+
+    @Test func testCorrectionReplacesSameSessionSample() {
+        var profiles: [VoiceProfile] = []
+        var session = labeledSession()
+        profiles.learn(from: session)
+        // Nachträglich korrigiert: Cluster 0 war gar nicht Anna, sondern Bernd.
+        let bernd = session.addPerson(named: "Bernd", partyID: session.parties[1].id)
+        session.clusterAssignments[0] = bernd.id
+        profiles.learn(from: session)
+        #expect(profiles.map(\.name).sorted() == ["Bernd", "Tom"])
+        #expect(profiles.allSatisfy { $0.sessionCount == 1 })
+    }
+
+    @Test func testManualAssignmentIsNotOverwrittenByRecognition() {
+        var profiles: [VoiceProfile] = []
+        profiles.learn(from: labeledSession())
+        var next = Session.new(title: "Drittes", ownerName: "Wayne")
+        let lisa = next.addPerson(named: "Lisa", partyID: nil)
+        next.segments = [TranscriptSegment(source: .system, start: 0, end: 5, text: "x", clusterID: 0)]
+        next.clusterAssignments = [0: lisa.id]
+        let names = next.applyRecognizedVoices([0: profiles[0].id], profiles: profiles)
+        #expect(names.isEmpty)
+        #expect(next.clusterAssignments[0] == lisa.id)
+    }
+}

@@ -2,16 +2,14 @@ import AVFoundation
 import CadenceCore
 import SwiftUI
 
-/// Startbildschirm: Titel, Quelle, Parteien – und ein großer Aufnahmeknopf.
+/// Startbildschirm ohne Scrollen: links Gespräch & Aufnahme, rechts die Teilnehmer.
 struct NewRecordingView: View {
     @EnvironmentObject private var recorder: RecordingController
-    @EnvironmentObject private var models: ModelManager
     @AppStorage(SettingsKey.consentReminder) private var consentReminder = true
     @AppStorage(SettingsKey.consentMessage) private var consentMessage = Defaults.consentMessage
-    @AppStorage(SettingsKey.ownPartyName) private var ownPartyName = "Wir"
-    @AppStorage(SettingsKey.otherPartyName) private var otherPartyName = "Kunde"
+    @AppStorage(SettingsKey.language) private var language = LanguageOption.german.rawValue
+    @AppStorage(SettingsKey.ownerName) private var ownerName = Defaults.ownerName
 
-    @State private var title = ""
     @State private var apps: [MeetingApp] = []
     @State private var target: SystemAudioTarget = .allSystemAudio
     @State private var showConsent = false
@@ -23,38 +21,32 @@ struct NewRecordingView: View {
     private var otherApps: [MeetingApp] { apps.filter { !$0.isKnownMeetingApp } }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 28) {
-                hero
-                ModelStatusBanner()
-                if micStatus != .authorized { permissionBanner }
+        VStack(spacing: 18) {
+            hero
+            ModelStatusBanner()
+            if micStatus != .authorized { permissionBanner }
 
-                VStack(alignment: .leading, spacing: 22) {
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 20) {
                     titleField
                     sourcePicker
-                    partiesRow
+                    languagePicker
+                    Spacer(minLength: 0)
+                    recordButton
+                        .frame(maxWidth: .infinity)
                 }
-                .card(padding: 22)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .card(padding: 20)
 
-                recordButton
-
-                Button {
-                    showShortcuts.toggle()
-                } label: {
-                    Label("Tastenkürzel", systemImage: "keyboard")
-                        .font(.callout)
-                }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .popover(isPresented: $showShortcuts, arrowEdge: .bottom) {
-                    HotkeyCheatSheet().padding(20).frame(width: 420)
-                }
+                ParticipantSetup(draft: $recorder.draft, ownerName: ownerName)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .card(padding: 20)
             }
-            .padding(.horizontal, 32)
-            .padding(.vertical, 36)
-            .frame(maxWidth: 640)
-            .frame(maxWidth: .infinity)
+            .frame(maxHeight: .infinity)
         }
+        .padding(24)
+        .frame(maxWidth: 1100, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
         .background(backgroundGlow)
         .onAppear {
             apps = AudioSourceCatalog.runningApps()
@@ -72,38 +64,48 @@ struct NewRecordingView: View {
 
     private var backgroundGlow: some View {
         ZStack {
-            Circle().fill(Theme.violet.opacity(0.12)).frame(width: 520).blur(radius: 120).offset(x: -180, y: -220)
-            Circle().fill(Theme.pink.opacity(0.10)).frame(width: 420).blur(radius: 120).offset(x: 220, y: -120)
+            Circle().fill(Theme.violet.opacity(0.12)).frame(width: 520).blur(radius: 120).offset(x: -260, y: -220)
+            Circle().fill(Theme.pink.opacity(0.10)).frame(width: 420).blur(radius: 120).offset(x: 280, y: -160)
         }
         .allowsHitTesting(false)
     }
 
     private var hero: some View {
-        VStack(spacing: 10) {
+        HStack(spacing: 14) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
-                .frame(width: 84, height: 84)
-                .shadow(color: Theme.violet.opacity(0.35), radius: 16, y: 8)
-            Text("Bereit fürs nächste Gespräch")
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-            Text("Cadence hört mit, schreibt mit und merkt sich, wer was gesagt hat – alles lokal auf deinem Mac.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                .frame(width: 52, height: 52)
+                .shadow(color: Theme.violet.opacity(0.35), radius: 10, y: 5)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Bereit fürs nächste Gespräch")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                Text("Teilnehmer vorbereiten, starten, im Gespräch per Klick oder ⌃⌥ + Zahl zuordnen. Alles bleibt lokal.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                showShortcuts.toggle()
+            } label: {
+                Label("Tastenkürzel", systemImage: "keyboard")
+            }
+            .buttonStyle(.bordered)
+            .popover(isPresented: $showShortcuts, arrowEdge: .bottom) {
+                HotkeyCheatSheet().padding(20).frame(width: 420)
+            }
         }
     }
 
     private var titleField: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Worum geht's?").sectionTitle()
-            TextField("z. B. Kickoff mit Kunde X", text: $title)
+            TextField("z. B. Kickoff mit Kunde X", text: $recorder.draft.title)
                 .textFieldStyle(.plain)
-                .font(.system(size: 20, weight: .medium, design: .rounded))
+                .font(.system(size: 18, weight: .medium, design: .rounded))
                 .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.vertical, 9)
                 .background(.background, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
-                .onSubmit(startTapped)
         }
     }
 
@@ -125,25 +127,26 @@ struct NewRecordingView: View {
                            isSelected: target == .allSystemAudio) {
                     target = .allSystemAudio
                 }
-                ForEach(meetingApps) { app in
+                ForEach(meetingApps.prefix(4)) { app in
                     let appTarget = SystemAudioTarget.app(bundleID: app.bundleID, name: app.name)
                     SourceChip(title: app.name, systemImage: nil, icon: app.icon, isSelected: target == appTarget) {
                         target = appTarget
                     }
                 }
-                if !otherApps.isEmpty {
+                let more = Array(meetingApps.dropFirst(4)) + otherApps
+                if !more.isEmpty {
                     Menu {
-                        ForEach(otherApps) { app in
+                        ForEach(more) { app in
                             Button(app.name) { target = .app(bundleID: app.bundleID, name: app.name) }
                         }
                     } label: {
-                        Label(otherAppSelectedName ?? "Andere App …", systemImage: "ellipsis.circle")
+                        Label(otherAppSelectedName(in: more) ?? "Andere App …", systemImage: "ellipsis.circle")
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(otherAppSelectedName != nil ? Theme.accent.opacity(0.15) : Color.clear, in: Capsule())
+                    .background(otherAppSelectedName(in: more) != nil ? Theme.accent.opacity(0.15) : Color.clear, in: Capsule())
                 }
             }
             Text(target == .allSystemAudio
@@ -154,59 +157,67 @@ struct NewRecordingView: View {
         }
     }
 
-    private var otherAppSelectedName: String? {
-        if case .app(let id, let name) = target, otherApps.contains(where: { $0.bundleID == id }) { return name }
+    private func otherAppSelectedName(in list: [MeetingApp]) -> String? {
+        if case .app(let id, let name) = target, list.contains(where: { $0.bundleID == id }) { return name }
         return nil
     }
 
-    private var partiesRow: some View {
+    private var languagePicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Wer ist dabei?").sectionTitle()
-            HStack(spacing: 12) {
-                PartyField(color: PartyColor.blue.color, placeholder: "Eigene Firma", text: $ownPartyName)
-                Image(systemName: "arrow.left.arrow.right").foregroundStyle(.tertiary)
-                PartyField(color: PartyColor.orange.color, placeholder: "Gegenseite", text: $otherPartyName)
+            Text("Sprache").sectionTitle()
+            Picker("Sprache", selection: $language) {
+                Text("Deutsch").tag(LanguageOption.german.rawValue)
+                Text("Englisch").tag(LanguageOption.english.rawValue)
+                Text("Automatisch").tag(LanguageOption.auto.rawValue)
             }
-            Text("Weitere Parteien und die einzelnen Personen fügst du während des Gesprächs hinzu.")
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            Text("„Automatisch“ erkennt die Sprache selbst, gut für gemischte Runden.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
     }
 
     private var recordButton: some View {
-        VStack(spacing: 12) {
+        HStack(spacing: 18) {
             Button(action: startTapped) {
                 ZStack {
                     Circle()
                         .fill(Theme.record.opacity(0.18))
-                        .frame(width: 112, height: 112)
+                        .frame(width: 92, height: 92)
                         .scaleEffect(hoveringRecord ? 1.08 : 1)
                     Circle()
                         .fill(Theme.recordGradient)
-                        .frame(width: 84, height: 84)
-                        .shadow(color: Theme.record.opacity(0.45), radius: 14, y: 6)
+                        .frame(width: 70, height: 70)
+                        .shadow(color: Theme.record.opacity(0.45), radius: 12, y: 5)
                     if recorder.phase == .preparing {
                         ProgressView().controlSize(.large).tint(.white)
                     } else {
                         Image(systemName: "mic.fill")
-                            .font(.system(size: 32, weight: .semibold))
+                            .font(.system(size: 28, weight: .semibold))
                             .foregroundStyle(.white)
                     }
                 }
                 .animation(.spring(duration: 0.3), value: hoveringRecord)
             }
             .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
+            // ⌘⏎ statt ⏎, damit ⏎ in den Namensfeldern nicht versehentlich die Aufnahme startet.
+            .keyboardShortcut(.return, modifiers: .command)
             .disabled(recorder.isBusy)
             .onHover { hoveringRecord = $0 }
-            .help("Aufnahme starten (⏎)")
+            .help("Aufnahme starten (⌘⏎)")
 
-            Text(recorder.phase == .preparing ? "Startet …" : "Aufnahme starten")
-                .font(.system(.headline, design: .rounded))
-            Toggle("Vorher an die Einwilligung erinnern", isOn: $consentReminder)
-                .toggleStyle(.checkbox)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(recorder.phase == .preparing ? "Startet …" : "Aufnahme starten")
+                    .font(.system(.title3, design: .rounded).weight(.semibold))
+                Text("Klicken oder ⌘⏎")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Vorher an die Einwilligung erinnern", isOn: $consentReminder)
+                    .toggleStyle(.checkbox)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -236,7 +247,239 @@ struct NewRecordingView: View {
     }
 
     private func start(consent: Bool) {
-        Task { await recorder.start(title: title, target: target, consentConfirmed: consent) }
+        let draft = recorder.draft
+        Task { await recorder.start(draft: draft, target: target, consentConfirmed: consent) }
+    }
+}
+
+/// Teilnehmer vor dem Gespräch anlegen: je Partei eine Karte mit Personen und Ziffern 1–9.
+private struct ParticipantSetup: View {
+    @Binding var draft: MeetingDraft
+    let ownerName: String
+    @EnvironmentObject private var store: SessionStore
+    @EnvironmentObject private var voices: VoiceProfileStore
+    @State private var newPartyName = ""
+    @State private var addingParty = false
+
+    /// Vorschläge: Stimmprofile zuerst (die erkennt Cadence wieder), dann Namen aus früheren Gesprächen.
+    private var knownPeople: [KnownPerson] {
+        var seen = Set<String>()
+        var result: [KnownPerson] = []
+        for profile in voices.profiles.sorted(by: { $0.updatedAt > $1.updatedAt }) where seen.insert(profile.name.lowercased()).inserted {
+            result.append(KnownPerson(name: profile.name, partyName: profile.partyName, hasVoice: true))
+        }
+        for entry in store.entries {
+            for person in entry.session.people where !person.isMicrophoneOwner && seen.insert(person.name.lowercased()).inserted {
+                result.append(KnownPerson(name: person.name, partyName: entry.session.party(of: person)?.name, hasVoice: false))
+            }
+        }
+        return result
+    }
+
+    private var recentSessions: [Session] {
+        store.entries.map(\.session).filter { $0.people.count > 1 }.prefix(8).map { $0 }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Wer ist dabei?").sectionTitle()
+                Spacer()
+                Menu {
+                    Button("Internes Meeting (eine Partei)") { draft.makeInternal() }
+                    Button("Kunde + wir (Standard)") {
+                        let title = draft.title
+                        draft = .fromDefaults()
+                        draft.title = title
+                    }
+                    if !recentSessions.isEmpty {
+                        Section("Teilnehmer übernehmen von …") {
+                            ForEach(recentSessions) { session in
+                                Button("\(session.title) · \(session.startedAt.formatted(.dateTime.day().month(.abbreviated)))") {
+                                    draft.copyParticipants(from: session)
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Label("Vorlage", systemImage: "rectangle.stack.badge.person.crop")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(draft.parties) { party in
+                        PartySetupCard(draft: $draft, party: party, ownerName: ownerName, knownPeople: knownPeople)
+                    }
+                    if addingParty {
+                        HStack {
+                            TextField("Name der Partei, z. B. Partner GmbH", text: $newPartyName)
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit(addParty)
+                            Button("Hinzufügen", action: addParty)
+                            Button("Abbrechen") { addingParty = false; newPartyName = "" }
+                        }
+                    } else {
+                        Button {
+                            addingParty = true
+                        } label: {
+                            Label("Weitere Partei", systemImage: "plus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+            .scrollIndicators(.automatic)
+
+            Text("Die Ziffern sind deine Tastenkürzel im Gespräch (⌃⌥ + Zahl). Bekannte Stimmen (\(Image(systemName: "waveform"))) erkennt Cadence nach dem Gespräch automatisch.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func addParty() {
+        let name = newPartyName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        draft.addParty(named: name)
+        newPartyName = ""
+        addingParty = false
+    }
+}
+
+struct KnownPerson: Hashable {
+    let name: String
+    let partyName: String?
+    let hasVoice: Bool
+}
+
+private struct PartySetupCard: View {
+    @Binding var draft: MeetingDraft
+    let party: Party
+    let ownerName: String
+    let knownPeople: [KnownPerson]
+    @State private var typed = ""
+    @FocusState private var focused: Bool
+
+    private var isOwnersParty: Bool { draft.ownerPartyID == party.id }
+
+    private var suggestions: [KnownPerson] {
+        let query = typed.trimmingCharacters(in: .whitespaces)
+        let available = knownPeople.filter { !draft.contains(name: $0.name) && $0.name.caseInsensitiveCompare(ownerName) != .orderedSame }
+        if query.isEmpty {
+            // Ohne Eingabe: bekannte Personen dieser Partei anbieten.
+            return Array(available.filter { $0.partyName?.caseInsensitiveCompare(party.name) == .orderedSame }.prefix(6))
+        }
+        return Array(available.filter { $0.name.localizedCaseInsensitiveContains(query) }.prefix(6))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Circle().fill(party.color.color).frame(width: 10, height: 10)
+                TextField("Partei", text: Binding(
+                    get: { party.name },
+                    set: { draft.renameParty(party.id, to: $0) }
+                ))
+                .textFieldStyle(.plain)
+                .font(.callout.weight(.semibold))
+                Spacer()
+                if !isOwnersParty {
+                    Button("Ich gehöre hierzu") { draft.ownerPartyID = party.id }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                }
+                if draft.parties.count > 1 {
+                    Button {
+                        draft.removeParty(party.id)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Partei entfernen")
+                }
+            }
+
+            FlowLayout(spacing: 6) {
+                if isOwnersParty {
+                    NameChip(name: "\(ownerName) (du)", color: party.color.color, badge: "🎙")
+                        .help("Du am Mikrofon – wirst immer automatisch erkannt")
+                }
+                ForEach(draft.people(in: party)) { person in
+                    personChip(person)
+                }
+                HStack(spacing: 4) {
+                    Image(systemName: "person.badge.plus").foregroundStyle(party.color.color)
+                    TextField("Name + ⏎", text: $typed)
+                        .textFieldStyle(.plain)
+                        .frame(width: 110)
+                        .focused($focused)
+                        .onSubmit {
+                            draft.addPerson(named: typed, partyID: party.id)
+                            typed = ""
+                            focused = true
+                        }
+                }
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(.background, in: Capsule())
+                .overlay(Capsule().strokeBorder(focused ? party.color.color : Color.secondary.opacity(0.25), lineWidth: 1))
+            }
+
+            if !suggestions.isEmpty {
+                FlowLayout(spacing: 6) {
+                    ForEach(suggestions, id: \.self) { known in
+                        Button {
+                            draft.addPerson(named: known.name, partyID: party.id)
+                            typed = ""
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: known.hasVoice ? "waveform" : "plus")
+                                Text(known.name)
+                            }
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.primary.opacity(0.05), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .help(known.hasVoice ? "Stimme bekannt – wird automatisch erkannt" : "Aus einem früheren Gespräch")
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(party.color.color.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func personChip(_ person: Person) -> some View {
+        let number = draft.hotkeyNumber(for: person)
+        return HStack(spacing: 5) {
+            if let number {
+                Text("\(number)")
+                    .font(.caption2.weight(.bold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .frame(width: 16, height: 16)
+                    .background(party.color.color, in: Circle())
+            }
+            Text(person.name).font(.callout.weight(.medium)).lineLimit(1)
+            Button {
+                draft.removePerson(person.id)
+            } label: {
+                Image(systemName: "xmark").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(party.color.color.opacity(0.14), in: Capsule())
+        .contextMenu {
+            ForEach(draft.parties.filter { $0.id != party.id }) { other in
+                Button("Zu „\(other.name)“ verschieben") { draft.movePerson(person.id, to: other.id) }
+            }
+        }
     }
 }
 
@@ -265,22 +508,6 @@ private struct SourceChip: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-    }
-}
-
-private struct PartyField: View {
-    let color: Color
-    let placeholder: String
-    @Binding var text: String
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle().fill(color).frame(width: 10, height: 10)
-            TextField(placeholder, text: $text).textFieldStyle(.plain)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 

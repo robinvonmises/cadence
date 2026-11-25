@@ -13,6 +13,7 @@ enum SettingsKey {
     static let runDiarization = "runDiarization"
     static let globalHotkeys = "globalHotkeys"
     static let consentMessage = "consentMessage"
+    static let voiceRecognition = "voiceRecognition"
 }
 
 enum Defaults {
@@ -39,7 +40,8 @@ enum Defaults {
             SettingsKey.consentReminder: true,
             SettingsKey.runDiarization: true,
             SettingsKey.globalHotkeys: true,
-            SettingsKey.consentMessage: consentMessage
+            SettingsKey.consentMessage: consentMessage,
+            SettingsKey.voiceRecognition: true
         ])
     }
 }

@@ -23,7 +23,9 @@ struct LiveSessionView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
             Divider()
-            TranscriptView(session: sessionBinding, isLive: true)
+            TranscriptView(session: sessionBinding, isLive: true, onAssignTurn: { turn, personID, isLatest in
+                recorder.assignTurn(segmentIDs: turn.segments.map(\.id), start: turn.start, to: personID, isLatest: isLatest)
+            })
             if recorder.isRecording {
                 Divider()
                 SpeakerDock(session: sessionBinding)
@@ -36,7 +38,8 @@ struct LiveSessionView: View {
             }
         }
         .toolbar {
-            ToolbarItem {
+            ToolbarItemGroup {
+                CopyMenu(session: sessionBinding.wrappedValue)
                 Button {
                     showInspector.toggle()
                 } label: {
@@ -157,6 +160,47 @@ private struct PulseModifier: ViewModifier {
     }
 }
 
+// MARK: - Kopieren
+
+/// Gespräch in die Zwischenablage – mit oder ohne Sprecher, mit oder ohne Zeitstempel.
+struct CopyMenu: View {
+    let session: Session
+    @State private var copied = false
+
+    var body: some View {
+        Menu {
+            Section("Gespräch kopieren") {
+                Button("Mit Sprechern und Zeitstempeln") { copy(speakers: true, timestamps: true) }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+                Button("Mit Sprechern, ohne Zeitstempel") { copy(speakers: true, timestamps: false) }
+                Button("Ohne Sprecher, mit Zeitstempeln") { copy(speakers: false, timestamps: true) }
+                Button("Nur Text") { copy(speakers: false, timestamps: false) }
+            }
+            Divider()
+            Button("Protokoll (Markdown)") { put(SessionExporter(session: session).protocolMarkdown()) }
+            Button("Transkript (Markdown)") { put(SessionExporter(session: session).markdown()) }
+        } label: {
+            Label(copied ? "Kopiert" : "Kopieren", systemImage: copied ? "checkmark" : "doc.on.doc")
+        }
+        .help("Gespräch in die Zwischenablage kopieren (⇧⌘C)")
+        .disabled(session.segments.isEmpty)
+    }
+
+    private func copy(speakers: Bool, timestamps: Bool) {
+        put(SessionExporter(session: session).plainText(includeSpeakers: speakers, includeTimestamps: timestamps))
+    }
+
+    private func put(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        copied = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            copied = false
+        }
+    }
+}
+
 // MARK: - Gespeichert
 
 struct SavedSessionView: View {
@@ -228,6 +272,7 @@ struct SavedSessionView: View {
         }
         .toolbar {
             ToolbarItemGroup {
+                CopyMenu(session: draft)
                 Menu {
                     ForEach(ExportFormat.allCases) { format in
                         Button(format.label) { export(format) }
@@ -288,6 +333,11 @@ struct SavedSessionView: View {
                 }
                 if draft.consentConfirmed {
                     InfoPill(icon: "checkmark.shield", text: "Einwilligung")
+                }
+                if let recognized = draft.recognizedClusters, !recognized.isEmpty {
+                    let names = recognized.keys.sorted().compactMap { draft.person(draft.clusterAssignments[$0])?.name }
+                    InfoPill(icon: "waveform", text: "Stimme erkannt: " + names.joined(separator: ", "))
+                        .help("Cadence hat diese Stimmen aus früheren Gesprächen wiedererkannt. Falls etwas nicht stimmt, rechts unter „Erkannte Stimmen“ korrigieren.")
                 }
             }
         }

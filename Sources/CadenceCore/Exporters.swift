@@ -216,6 +216,18 @@ public struct SessionExporter {
     }
 
     public func plainText() -> String {
-        turns().map { "[\(TimeFormat.clock($0.start))] \($0.name): \($0.text)" }.joined(separator: "\n")
+        plainText(includeSpeakers: true, includeTimestamps: true)
+    }
+
+    /// Gesprächstext zum Kopieren – wahlweise mit Sprechern und/oder Zeitstempeln.
+    /// Ein Absatz je Wortbeitrag, durch Leerzeilen getrennt.
+    public func plainText(includeSpeakers: Bool, includeTimestamps: Bool) -> String {
+        turns().map { turn in
+            var prefix = ""
+            if includeTimestamps { prefix += "[\(TimeFormat.clock(turn.start))] " }
+            if includeSpeakers { prefix += "\(turn.name): " }
+            return prefix + turn.text
+        }
+        .joined(separator: "\n\n")
     }
 }

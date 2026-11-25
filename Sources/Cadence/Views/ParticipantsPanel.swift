@@ -5,6 +5,7 @@ import SwiftUI
 struct SpeakerDock: View {
     @EnvironmentObject private var recorder: RecordingController
     @EnvironmentObject private var store: SessionStore
+    @EnvironmentObject private var voices: VoiceProfileStore
     @Binding var session: Session
     @State private var typedName = ""
     @State private var partyID: UUID?
@@ -15,6 +16,9 @@ struct SpeakerDock: View {
     private var knownPeople: [(name: String, party: String?)] {
         var seen = Set(session.people.map { $0.name.lowercased() })
         var result: [(name: String, party: String?)] = []
+        for profile in voices.profiles where seen.insert(profile.name.lowercased()).inserted {
+            result.append((name: profile.name, party: profile.partyName))
+        }
         for entry in store.entries {
             for person in entry.session.people where !person.isMicrophoneOwner {
                 if seen.insert(person.name.lowercased()).inserted {

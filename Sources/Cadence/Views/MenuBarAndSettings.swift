@@ -136,6 +136,9 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             .tabItem { Label("Speichern", systemImage: "externaldrive") }
+
+            VoiceProfilesSettings()
+                .tabItem { Label("Stimmen", systemImage: "waveform") }
         }
         .padding(20)
         .frame(width: 560)
@@ -150,6 +153,57 @@ struct SettingsView: View {
         if panel.runModal() == .OK, let url = panel.url {
             storagePath = url.path
             store.reload()
+        }
+    }
+}
+
+/// Gespeicherte Stimmprofile ansehen und löschen.
+private struct VoiceProfilesSettings: View {
+    @EnvironmentObject private var voices: VoiceProfileStore
+    @AppStorage(SettingsKey.voiceRecognition) private var voiceRecognition = true
+    @State private var confirmDeleteAll = false
+
+    var body: some View {
+        Form {
+            Toggle("Stimmen merken und in künftigen Gesprächen wiedererkennen", isOn: $voiceRecognition)
+            Text("Sobald du einer Stimme eine Person zuordnest (live oder danach), speichert Cadence einen Stimm-Fingerabdruck – nur lokal auf diesem Mac. Nach dem nächsten Gespräch trägt Cadence bekannte Stimmen automatisch ein. Je öfter jemand dabei war, desto zuverlässiger.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Section("Bekannte Stimmen") {
+                if voices.profiles.isEmpty {
+                    Text("Noch keine. Ordne nach einem Gespräch die Stimmen zu, dann erscheinen sie hier.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(voices.profiles.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }) { profile in
+                        HStack {
+                            Avatar(name: profile.name, color: Theme.accent, size: 24)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(profile.name)
+                                Text([profile.partyName, "\(profile.sessionCount) \(profile.sessionCount == 1 ? "Gespräch" : "Gespräche")"]
+                                    .compactMap { $0 }.joined(separator: " · "))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button(role: .destructive) {
+                                voices.delete(profile.id)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Stimmprofil löschen")
+                        }
+                    }
+                    Button("Alle Stimmprofile löschen", role: .destructive) { confirmDeleteAll = true }
+                }
+            }
+        }
+        .confirmationDialog("Alle Stimmprofile löschen?", isPresented: $confirmDeleteAll) {
+            Button("Alle löschen", role: .destructive) { voices.deleteAll() }
+        } message: {
+            Text("Gespräche und Transkripte bleiben erhalten.")
         }
     }
 }

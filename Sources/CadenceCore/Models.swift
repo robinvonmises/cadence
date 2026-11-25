@@ -197,6 +197,10 @@ public struct Session: Identifiable, Codable, Hashable, Sendable {
     public var clusterAssignments: [Int: UUID]
     public var audio: AudioFiles
     public var consentConfirmed: Bool
+    /// Stimm-Fingerabdruck je Diarization-Cluster (für Stimmprofile). Optional, damit ältere Sessions lesbar bleiben.
+    public var clusterEmbeddings: [Int: [Float]]?
+    /// Cluster, die automatisch über ein Stimmprofil erkannt wurden (Cluster → Profil-ID).
+    public var recognizedClusters: [Int: UUID]?
 
     public init(
         id: UUID = UUID(),
@@ -213,7 +217,9 @@ public struct Session: Identifiable, Codable, Hashable, Sendable {
         markers: [Marker] = [],
         clusterAssignments: [Int: UUID] = [:],
         audio: AudioFiles = AudioFiles(),
-        consentConfirmed: Bool = false
+        consentConfirmed: Bool = false,
+        clusterEmbeddings: [Int: [Float]]? = nil,
+        recognizedClusters: [Int: UUID]? = nil
     ) {
         self.schemaVersion = Session.currentSchemaVersion
         self.id = id
@@ -231,6 +237,8 @@ public struct Session: Identifiable, Codable, Hashable, Sendable {
         self.clusterAssignments = clusterAssignments
         self.audio = audio
         self.consentConfirmed = consentConfirmed
+        self.clusterEmbeddings = clusterEmbeddings
+        self.recognizedClusters = recognizedClusters
     }
 
     public static var defaultParties: [Party] {
@@ -241,10 +249,27 @@ public struct Session: Identifiable, Codable, Hashable, Sendable {
     }
 
     /// Neue Session mit dem Mikrofon-Besitzer in der ersten Partei.
-    public static func new(title: String, ownerName: String, parties: [Party] = Session.defaultParties) -> Session {
+    /// `participants` sind vorab angelegte Teilnehmer (ohne dich); ihre `partyID` muss zu `parties` passen.
+    public static func new(
+        title: String,
+        ownerName: String,
+        parties: [Party] = Session.defaultParties,
+        ownerPartyID: UUID? = nil,
+        participants: [Person] = []
+    ) -> Session {
         var session = Session(title: title, parties: parties)
-        let owner = Person(name: ownerName, partyID: parties.first?.id, isMicrophoneOwner: true)
+        let ownerParty = ownerPartyID.flatMap { id in parties.first { $0.id == id }?.id } ?? parties.first?.id
+        let owner = Person(name: ownerName, partyID: ownerParty, isMicrophoneOwner: true)
         session.people = [owner]
+        for person in participants {
+            let name = person.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty,
+                  !session.people.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else { continue }
+            var copy = person
+            copy.name = name
+            copy.isMicrophoneOwner = false
+            session.people.append(copy)
+        }
         return session
     }
 

@@ -64,6 +64,15 @@ public extension Session {
         SpeakerResolver.resolve(&self)
     }
 
+    /// Mehrere Abschnitte (z. B. einen ganzen Wortbeitrag) auf einmal zuordnen.
+    mutating func assign(segments segmentIDs: [UUID], to personID: UUID?) {
+        let ids = Set(segmentIDs)
+        for index in segments.indices where ids.contains(segments[index].id) {
+            segments[index].manualPersonID = personID
+        }
+        SpeakerResolver.resolve(&self)
+    }
+
     /// Alle Abschnitte eines Diarization-Clusters einer Person zuordnen.
     mutating func assign(cluster: Int, to personID: UUID?) {
         clusterAssignments[cluster] = personID

@@ -8,10 +8,13 @@ struct CadenceApp: App {
     @StateObject private var recorder: RecordingController
     @StateObject private var models: ModelManager
     @StateObject private var navigation = Navigation()
+    @StateObject private var voices: VoiceProfileStore
 
     init() {
         Defaults.register()
-        let store = SessionStore()
+        let voices = VoiceProfileStore()
+        let store = SessionStore(voices: voices)
+        _voices = StateObject(wrappedValue: voices)
         let models = ModelManager()
         _store = StateObject(wrappedValue: store)
         _models = StateObject(wrappedValue: models)
@@ -27,7 +30,8 @@ struct CadenceApp: App {
                 .environmentObject(recorder)
                 .environmentObject(navigation)
                 .environmentObject(models)
-                .frame(minWidth: 1000, minHeight: 640)
+                .environmentObject(voices)
+                .frame(minWidth: 1080, minHeight: 720)
                 .onAppear {
                     store.reload()
                     configureHotkeys()
@@ -81,6 +85,7 @@ struct CadenceApp: App {
             SettingsView()
                 .environmentObject(store)
                 .environmentObject(models)
+                .environmentObject(voices)
         }
     }
 

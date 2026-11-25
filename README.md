@@ -10,7 +10,10 @@ Cadence ist eine native macOS-App, die den Ton deiner Meeting-App (Teams, Zoom, 
 | 🎙️ **Zwei Spuren** | Mikrofon = du, Systemaudio = die Gegenseite. Deine Beiträge sind dadurch automatisch richtig zugeordnet. |
 | 🧩 **Jede Meeting-App** | „Gesamter Systemton“ funktioniert mit allem; optional nur eine bestimmte App (inkl. Hilfsprozesse wie Teams-WebView). |
 | 📝 **Lokale Transkription** | [WhisperKit](https://github.com/argmaxinc/WhisperKit) auf der Neural Engine, Deutsch/Englisch/automatisch. Live während des Gesprächs. |
-| 🗣️ **Wer spricht?** | Live per Klick, per **⌃⌥1–9** (funktioniert auch, wenn Teams vorne ist) oder Namen eintippen + ⏎. |
+| 👥 **Vorbereiten** | Teilnehmer je Partei schon vor dem Start anlegen (mit Vorschlägen aus früheren Gesprächen oder „Teilnehmer übernehmen von …“). Vorlage „Internes Meeting“ mit nur einer Partei. |
+| 🗣️ **Wer spricht?** | Live per Klick, per **⌃⌥1–9** (funktioniert auch, wenn Teams vorne ist) oder Namen eintippen + ⏎. Unter jedem unbekannten Beitrag stehen die Teilnehmer als Knöpfe: ein Klick, und der Beitrag (und alles Folgende) gehört dieser Person. |
+| 🔊 **Stimmprofile** | Zugeordnete Stimmen merkt sich Cadence lokal (`~/Library/Application Support/Cadence/stimmen.json`). Nach dem nächsten Gespräch werden bekannte Stimmen automatisch eingetragen. Verwalten unter Einstellungen → Stimmen. |
+| 📋 **Kopieren** | Gespräch in die Zwischenablage: mit/ohne Sprecher, mit/ohne Zeitstempel (⇧⌘C), dazu Protokoll und Markdown. |
 | 🧠 **Sprechertrennung** | Nach dem Gespräch trennt [SpeakerKit](https://github.com/argmaxinc/WhisperKit) (pyannote, lokal) die Stimmen. Jede Stimme bekommt automatisch die Person, die du live am häufigsten markiert hast – ein, zwei Markierungen pro Person reichen. |
 | 🏢 **Parteien** | „Wir“, „Kunde“ und beliebig weitere (Partner, Dienstleister …). Personen lassen sich verschieben und umbenennen. |
 | ⭐️ **Marker & Notizen** | Wichtig / Aufgabe / Entscheidung / Notiz mit Zeitstempel, live per Hotkey oder aus jedem Satz heraus. |
@@ -68,7 +71,7 @@ Die globalen Tastenkürzel brauchen **keine** Bedienungshilfen-Freigabe.
 
 ## Bedienung im Gespräch
 
-1. Titel eingeben, Quelle wählen („Gesamter Systemton“ passt fast immer), **Aufnahme starten**.
+1. Titel eingeben, Quelle wählen („Alle Apps“ passt fast immer), Sprache wählen, rechts die Teilnehmer anlegen. **Aufnahme starten** (Klick oder ⌘⏎).
 2. Die Einwilligung bestätigen (der Hinweistext lässt sich in den Teams-Chat kopieren).
 3. Wenn jemand von der Gegenseite spricht: Name eintippen + ⏎ (beim ersten Mal) bzw. **⌃⌥1–9** / Klick auf den Namen. **⌃⌥0** = unbekannt. **⌃⌥N** holt Cadence nach vorn ins Namensfeld.
 4. **⌃⌥M / A / E** markieren eine wichtige Stelle / Aufgabe / Entscheidung. Notizen gehen im rechten Panel.
@@ -106,8 +109,9 @@ Ablauf: **Tap/Mikrofon → 48 kHz mono → M4A** und parallel **→ 16 kHz → A
 
 ## Roadmap / Ideen
 
-- [ ] **Sprecherprofile:** Stimmen über Gespräche hinweg wiedererkennen (SpeakerKit liefert bereits Stimm-Embeddings pro Cluster)
-- [ ] **Live-Diarization** während des Gesprächs statt erst danach
+- [x] **Sprecherprofile:** Stimmen über Gespräche hinweg wiedererkennen (nach dem Gespräch)
+- [ ] **Live-Diarization** und Live-Stimmerkennung während des Gesprächs statt erst danach
+- [ ] Schwellwert der Stimmerkennung an echten Gesprächen kalibrieren (derzeit vorsichtig: Kosinus ≥ 0,62)
 - [ ] **Zusammenfassung & Aufgaben** automatisch, lokal (z. B. Apple Foundation Models / MLX), optional per API
 - [ ] **Kalender-Integration:** Titel und Teilnehmer aus dem Termin übernehmen; Auto-Start, wenn Teams einen Anruf beginnt
 - [ ] **Hochpräzise Nachtranskription** der ganzen Datei mit Wortzeitstempeln
