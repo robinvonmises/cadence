@@ -7,12 +7,15 @@ struct CadenceApp: App {
     @StateObject private var store: SessionStore
     @StateObject private var recorder: RecordingController
     @StateObject private var navigation = Navigation()
+    @StateObject private var models: ModelManager
 
     init() {
         Defaults.register()
         let store = SessionStore()
+        let models = ModelManager()
         _store = StateObject(wrappedValue: store)
-        _recorder = StateObject(wrappedValue: RecordingController(store: store))
+        _models = StateObject(wrappedValue: models)
+        _recorder = StateObject(wrappedValue: RecordingController(store: store, models: models))
         // Auch beim Start über `swift run` als normale App mit Dock-Symbol erscheinen.
         NSApplication.shared.setActivationPolicy(.regular)
     }
@@ -23,10 +26,13 @@ struct CadenceApp: App {
                 .environmentObject(store)
                 .environmentObject(recorder)
                 .environmentObject(navigation)
-                .frame(minWidth: 980, minHeight: 620)
+                .environmentObject(models)
+                .frame(minWidth: 1020, minHeight: 640)
                 .onAppear {
                     store.reload()
                     configureHotkeys()
+                    // Modell gleich beim Start laden, damit die erste Aufnahme sofort transkribiert wird.
+                    models.prepareSelectedModel()
                 }
         }
         .commands {
@@ -66,12 +72,13 @@ struct CadenceApp: App {
                 .environmentObject(recorder)
                 .environmentObject(navigation)
         } label: {
-            Image(systemName: recorder.isRecording ? "record.circle.fill" : "waveform")
+            Image(systemName: recorder.isRecording ? "record.circle.fill" : "waveform.circle")
         }
 
         Settings {
             SettingsView()
                 .environmentObject(store)
+                .environmentObject(models)
         }
     }
 

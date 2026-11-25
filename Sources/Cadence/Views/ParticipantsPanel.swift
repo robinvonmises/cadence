@@ -26,7 +26,7 @@ struct LiveSpeakerPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Wer spricht gerade?").font(.headline)
+            SectionTitle(title: "Wer spricht gerade?", systemImage: "person.wave.2.fill")
 
             let people = session.hotkeyPeople
             if people.isEmpty {
@@ -119,7 +119,7 @@ struct PartiesPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("Teilnehmer").font(.headline)
+                SectionTitle(title: "Teilnehmer", systemImage: "person.2.fill")
                 Spacer()
                 Button {
                     renameText = ""
@@ -135,7 +135,7 @@ struct PartiesPanel: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Circle().fill(party.color.color).frame(width: 8, height: 8)
-                        Text(party.name).font(.subheadline.bold())
+                        Text(party.name.uppercased()).font(.caption.weight(.semibold)).tracking(0.5).foregroundStyle(.secondary)
                     }
                     .contextMenu {
                         Button("Umbenennen …") { renameText = party.name; renaming = .party(party.id) }
@@ -145,7 +145,7 @@ struct PartiesPanel: View {
                     }
                     let members = session.people(in: party)
                     if members.isEmpty {
-                        Text("—").foregroundStyle(.tertiary).padding(.leading, 14)
+                        Text("Noch niemand").font(.caption).foregroundStyle(.tertiary).padding(.leading, 4)
                     }
                     ForEach(members) { person in personRow(person) }
                 }
@@ -173,9 +173,7 @@ struct PartiesPanel: View {
 
     private func personRow(_ person: Person) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: person.isMicrophoneOwner ? "mic.fill" : "person.fill")
-                .foregroundStyle(.secondary)
-                .frame(width: 14)
+            Avatar(name: person.name, color: session.party(of: person)?.color.color ?? .gray, size: 22, isMicrophone: person.isMicrophoneOwner)
             Text(person.name)
             if person.isMicrophoneOwner { Text("(Mikrofon)").font(.caption).foregroundStyle(.secondary) }
             Spacer()
@@ -184,7 +182,8 @@ struct PartiesPanel: View {
                 Text(TimeFormat.clock(seconds)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
         }
-        .padding(.leading, 14)
+        .padding(.leading, 4)
+        .padding(.vertical, 1)
         .contentShape(Rectangle())
         .contextMenu {
             Button("Umbenennen …") { renameText = person.name; renaming = .person(person.id) }
@@ -221,7 +220,7 @@ struct ClusterMappingPanel: View {
         let clusters = session.clusterIDs
         if !clusters.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Erkannte Stimmen").font(.headline)
+                SectionTitle(title: "Erkannte Stimmen", systemImage: "waveform.badge.magnifyingglass")
                 Text("Cadence hat die Gegenseite automatisch in Stimmen getrennt. Ordne jede Stimme einer Person zu – das gilt dann für das ganze Gespräch.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -266,7 +265,7 @@ struct MarkersPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Notizen & Marker").font(.headline)
+            SectionTitle(title: "Notizen & Marker", systemImage: "bookmark.fill")
             HStack(spacing: 6) {
                 Picker("", selection: $kind) {
                     ForEach(MarkerKind.allCases.filter { $0 != .consent }, id: \.self) { kind in

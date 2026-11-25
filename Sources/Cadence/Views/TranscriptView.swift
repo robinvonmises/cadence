@@ -80,8 +80,10 @@ struct TranscriptView: View {
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+                .frame(maxWidth: 860, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
             .onChange(of: session.segments.count) { _, _ in
                 guard isLive, autoScroll else { return }
@@ -91,7 +93,9 @@ struct TranscriptView: View {
                 if isLive {
                     Toggle(isOn: $autoScroll) { Label("Mitscrollen", systemImage: "arrow.down.to.line") }
                         .toggleStyle(.button)
-                        .padding(10)
+                        .buttonStyle(.bordered)
+                        .clipShape(Capsule())
+                        .padding(14)
                 }
             }
         }
@@ -109,13 +113,20 @@ struct TranscriptView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "text.bubble").font(.largeTitle).foregroundStyle(.tertiary)
-            Text(isLive ? "Sobald jemand spricht, erscheint hier das Transkript." : "Kein Transkript vorhanden.")
+        VStack(spacing: 12) {
+            Image(systemName: isLive ? "waveform" : "text.bubble")
+                .font(.system(size: 34, weight: .medium))
+                .foregroundStyle(Brand.gradient)
+                .symbolEffect(.variableColor.iterative, isActive: isLive)
+                .frame(width: 72, height: 72)
+                .background(Brand.soft, in: Circle())
+            Text(isLive ? "Ich höre zu …" : "Kein Transkript vorhanden")
+                .font(.title3.weight(.semibold))
+            Text(isLive ? "Sobald jemand spricht, erscheint hier das Transkript." : "Für dieses Gespräch gibt es noch keinen Text.")
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 80)
+        .padding(.top, 90)
     }
 }
 
@@ -128,25 +139,28 @@ private struct SegmentRow: View {
     let onEdit: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 3) {
             if showHeader {
                 HStack(spacing: 8) {
                     speakerMenu
                     Text(TimeFormat.clock(segment.start))
                         .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                     if segment.origin == .none && segment.source == .system {
-                        Text("nicht zugeordnet").font(.caption).foregroundStyle(.orange)
+                        StatusPill(text: "nicht zugeordnet", systemImage: "questionmark", tint: .orange)
                     }
                 }
-                .padding(.top, 10)
+                .padding(.top, 14)
             }
             Text(segment.text)
+                .font(.body)
+                .lineSpacing(3)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 4)
-                .padding(.vertical, 2)
-                .background(isPlaying ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 4))
+                .padding(.leading, 34)
+                .padding(.trailing, 6)
+                .padding(.vertical, 3)
+                .background(isPlaying ? Brand.violet.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { onSeek?(segment.start) }
                 .contextMenu { contextMenu }
@@ -157,7 +171,14 @@ private struct SegmentRow: View {
         Menu {
             assignmentButtons
         } label: {
-            NameChip(name: session.displayName(for: segment), color: session.color(for: segment.personID))
+            HStack(spacing: 8) {
+                let person = session.person(segment.personID)
+                Avatar(name: session.displayName(for: segment), color: session.color(for: segment.personID), size: 26,
+                       isMicrophone: person?.isMicrophoneOwner == true)
+                Text(session.displayName(for: segment))
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(session.color(for: segment.personID))
+            }
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -217,14 +238,17 @@ private struct MarkerRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(marker.kind.emoji)
-            Text(marker.text).bold()
-            Text(TimeFormat.clock(marker.time)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            Text(marker.text.isEmpty ? marker.kind.label : marker.text).fontWeight(.semibold)
             Spacer()
+            Text(TimeFormat.clock(marker.time)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 10)
-        .background(Color.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(Color.yellow.opacity(0.13), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 2).fill(Color.yellow).frame(width: 3).padding(.vertical, 6)
+        }
+        .padding(.vertical, 8)
         .contextMenu {
             if let onSeek { Button("Ab hier abspielen") { onSeek(marker.time) } }
             Button("Marker löschen", role: .destructive, action: onDelete)

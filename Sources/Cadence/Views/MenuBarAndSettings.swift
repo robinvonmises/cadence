@@ -49,6 +49,7 @@ struct MenuBarView: View {
 
 struct SettingsView: View {
     @EnvironmentObject private var store: SessionStore
+    @EnvironmentObject private var models: ModelManager
     @AppStorage(SettingsKey.ownerName) private var ownerName = Defaults.ownerName
     @AppStorage(SettingsKey.ownPartyName) private var ownPartyName = "Wir"
     @AppStorage(SettingsKey.otherPartyName) private var otherPartyName = "Kunde"
@@ -79,6 +80,22 @@ struct SettingsView: View {
                 Picker("Sprachmodell", selection: $model) {
                     ForEach(WhisperModelOption.allCases) { option in
                         Text(option.label).tag(option.rawValue)
+                    }
+                }
+                .onChange(of: model) { _, newValue in models.prepare(model: newValue) }
+                LabeledContent("Status") {
+                    ModelStatusView(compact: true)
+                }
+                LabeledContent("Modell-Ordner") {
+                    HStack {
+                        Text(ModelManager.modelsFolder.path(percentEncoded: false))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                        Button("Zeigen") {
+                            try? FileManager.default.createDirectory(at: ModelManager.modelsFolder, withIntermediateDirectories: true)
+                            NSWorkspace.shared.open(ModelManager.modelsFolder)
+                        }
                     }
                 }
                 Picker("Sprache", selection: $language) {
@@ -117,8 +134,9 @@ struct SettingsView: View {
             }
             .tabItem { Label("Speichern", systemImage: "externaldrive") }
         }
-        .padding(20)
-        .frame(width: 560)
+        .formStyle(.grouped)
+        .tint(Brand.violet)
+        .frame(width: 620, height: 400)
     }
 
     private func chooseFolder() {

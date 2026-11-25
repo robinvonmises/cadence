@@ -11,6 +11,14 @@ enum WhisperModelOption: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    var shortName: String {
+        switch self {
+        case .base: return "Whisper Base"
+        case .small: return "Whisper Small"
+        case .largeTurbo: return "Whisper Large v3 Turbo"
+        }
+    }
+
     var label: String {
         switch self {
         case .base: return "Base – sehr schnell, einfache Qualität (~150 MB)"
@@ -23,32 +31,27 @@ enum WhisperModelOption: String, CaseIterable, Identifiable {
 /// Lokale Transkription mit WhisperKit. Ein Actor, damit Abschnitte beider Spuren nacheinander
 /// abgearbeitet werden und das Modell nur einmal im Speicher liegt.
 actor TranscriptionEngine {
-    enum State: Equatable {
-        case idle
-        case loading(String)
-        case ready
-        case failed(String)
-    }
-
     private var whisper: WhisperKit?
     private var loadedModel: String?
-    private(set) var state: State = .idle
     private var pending = 0
 
     var backlog: Int { pending }
 
-    func prepare(model: String) async throws {
+    /// Lädt ein bereits heruntergeladenes Modell (siehe `ModelManager`).
+    func load(model: String, folder: URL, downloadBase: URL) async throws {
         if loadedModel == model, whisper != nil { return }
-        state = .loading(model)
-        do {
-            let config = WhisperKitConfig(model: model, verbose: false, prewarm: true, load: true, download: true)
-            whisper = try await WhisperKit(config)
-            loadedModel = model
-            state = .ready
-        } catch {
-            state = .failed(error.localizedDescription)
-            throw error
-        }
+        whisper = nil
+        let config = WhisperKitConfig(
+            model: model,
+            downloadBase: downloadBase,
+            modelFolder: folder.path,
+            verbose: false,
+            prewarm: true,
+            load: true,
+            download: false
+        )
+        whisper = try await WhisperKit(config)
+        loadedModel = model
     }
 
     /// Transkribiert einen Abschnitt und liefert Segmente mit absoluten Zeiten.
@@ -111,7 +114,11 @@ actor DiarizationEngine {
     func diarize(samples: [Float], expectedSpeakers: Int?) async throws -> [DiarizedTurn] {
         guard samples.count > Int(SpeechChunker.sampleRate * 2) else { return [] }
         if speakerKit == nil {
-            speakerKit = try await SpeakerKit(PyannoteConfig(modelDownloadConfig: nil, download: true, load: true, verbose: false))
+            let download = ModelDownloadConfig(
+                downloadBase: ModelManager.modelsFolder.path,
+                modelRepo: "argmaxinc/speakerkit-coreml"
+            )
+            speakerKit = try await SpeakerKit(PyannoteConfig(modelDownloadConfig: download, download: true, load: true, verbose: false))
         }
         guard let speakerKit else { return [] }
         let options = PyannoteDiarizationOptions(numberOfSpeakers: expectedSpeakers)

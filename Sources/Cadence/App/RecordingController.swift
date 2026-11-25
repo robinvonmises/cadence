@@ -18,7 +18,6 @@ final class RecordingController: ObservableObject {
     @Published private(set) var elapsed: Double = 0
     @Published private(set) var micLevel: Float = 0
     @Published private(set) var systemLevel: Float = 0
-    @Published private(set) var modelStatus: String = ""
     @Published private(set) var backlog: Int = 0
     @Published private(set) var currentSpeakerID: UUID?
     @Published var errorMessage: String?
@@ -26,7 +25,8 @@ final class RecordingController: ObservableObject {
     @Published var focusSpeakerFieldRequest = UUID()
 
     private let store: SessionStore
-    private let engine = TranscriptionEngine()
+    let models: ModelManager
+    private var engine: TranscriptionEngine { models.engine }
     private let diarizer = DiarizationEngine()
     private let systemTap = SystemAudioTap()
     private let microphone = MicrophoneCapture()
@@ -38,8 +38,9 @@ final class RecordingController: ObservableObject {
     private var autosaveTimer: Timer?
     private var startDate = Date()
 
-    init(store: SessionStore) {
+    init(store: SessionStore, models: ModelManager) {
         self.store = store
+        self.models = models
     }
 
     var isRecording: Bool { phase == .recording }
@@ -132,19 +133,16 @@ final class RecordingController: ObservableObject {
         phase = .recording
         startTimers()
 
-        let model = defaults.string(forKey: SettingsKey.model) ?? WhisperModelOption.largeTurbo.rawValue
+        models.prepareSelectedModel()
         transcriptionTask = Task { [weak self] in
-            await self?.runTranscription(stream: stream, model: model, language: language.whisperCode)
+            await self?.runTranscription(stream: stream, language: language.whisperCode)
         }
     }
 
-    private func runTranscription(stream: AsyncStream<SpeechChunk>, model: String, language: String?) async {
-        modelStatus = "Lade Sprachmodell … (beim ersten Mal wird es heruntergeladen)"
-        do {
-            try await engine.prepare(model: model)
-            modelStatus = ""
-        } catch {
-            modelStatus = "Sprachmodell konnte nicht geladen werden: \(error.localizedDescription). Audio wird trotzdem aufgenommen."
+    private func runTranscription(stream: AsyncStream<SpeechChunk>, language: String?) async {
+        // Abschnitte stauen sich im Stream, bis das Modell bereit ist – nichts geht verloren.
+        guard await models.waitUntilReady() else {
+            // Ohne Modell läuft die Aufnahme weiter; das Transkript lässt sich danach aus dem Audio erstellen.
             for await _ in stream {}
             return
         }
