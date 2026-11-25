@@ -42,6 +42,14 @@ Ohne eigenen Build: Jeder Push baut die App per GitHub Actions; unter **Actions 
 CODESIGN_IDENTITY="Apple Development: Dein Name (TEAMID)" ./scripts/build-app.sh
 ```
 
+**Liegt das Repo in einem synchronisierten Ordner** (Nextcloud, iCloud, Dropbox), Build-Dateien außerhalb ablegen:
+
+```bash
+SCRATCH_PATH=~/Library/Caches/cadence-build APP_DIR=~/Applications ./scripts/build-app.sh
+```
+
+**Nur Command Line Tools, kein Xcode?** Neuere macOS-SDKs brauchen für SwiftUI ein Macro-Plugin, das nur Xcode mitliefert. Das Skript nimmt dann automatisch das ältere SDK aus den Command Line Tools; für `swift test` von Hand: `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk swift test`.
+
 **In Xcode entwickeln:** `brew install xcodegen && xcodegen` erzeugt `Cadence.xcodeproj` (siehe `project.yml`). Alternativ `open Package.swift` – dann aber über `build-app.sh` starten, weil ein nacktes Executable keine Mikrofonfreigabe bekommt.
 
 **Tests:** `swift test` (Sprecherzuordnung, Abschnittserkennung, Export).
