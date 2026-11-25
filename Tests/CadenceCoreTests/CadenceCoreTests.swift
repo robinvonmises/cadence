@@ -1,7 +1,8 @@
-import XCTest
+import Foundation
+import Testing
 @testable import CadenceCore
 
-final class SpeakerResolverTests: XCTestCase {
+struct SpeakerResolverTests {
     private func makeSession() -> (Session, Person, Person, Person) {
         var session = Session.new(title: "Test", ownerName: "Wayne")
         let owner = session.microphoneOwner!
@@ -11,15 +12,15 @@ final class SpeakerResolverTests: XCTestCase {
         return (session, owner, anna, tom)
     }
 
-    func testMicrophoneSegmentsBelongToOwner() {
+    @Test func testMicrophoneSegmentsBelongToOwner() {
         var (session, owner, _, _) = makeSession()
         session.segments = [TranscriptSegment(source: .microphone, start: 0, end: 2, text: "Hallo")]
         SpeakerResolver.resolve(&session)
-        XCTAssertEqual(session.segments[0].personID, owner.id)
-        XCTAssertEqual(session.segments[0].origin, .microphone)
+        #expect(session.segments[0].personID == owner.id)
+        #expect(session.segments[0].origin == .microphone)
     }
 
-    func testLiveTagsAssignSystemSegments() {
+    @Test func testLiveTagsAssignSystemSegments() {
         var (session, _, anna, tom) = makeSession()
         session.speakerTags = [SpeakerTag(time: 1, personID: anna.id), SpeakerTag(time: 10, personID: tom.id)]
         session.segments = [
@@ -28,12 +29,12 @@ final class SpeakerResolverTests: XCTestCase {
             TranscriptSegment(source: .system, start: 11, end: 13, text: "Tom")
         ]
         SpeakerResolver.resolve(&session)
-        XCTAssertNil(session.segments[0].personID)
-        XCTAssertEqual(session.segments[1].personID, anna.id)
-        XCTAssertEqual(session.segments[2].personID, tom.id)
+        #expect(session.segments[0].personID == nil)
+        #expect(session.segments[1].personID == anna.id)
+        #expect(session.segments[2].personID == tom.id)
     }
 
-    func testClustersPropagateLiveTagsToWholeConversation() {
+    @Test func testClustersPropagateLiveTagsToWholeConversation() {
         var (session, _, anna, tom) = makeSession()
         // Nur ganz am Anfang live markiert …
         session.speakerTags = [SpeakerTag(time: 0, personID: anna.id), SpeakerTag(time: 5, personID: tom.id), SpeakerTag(time: 9, personID: nil)]
@@ -51,21 +52,21 @@ final class SpeakerResolverTests: XCTestCase {
         ]
         SpeakerResolver.finalize(&session, turns: turns)
         // … und trotzdem ist der spätere Teil richtig zugeordnet.
-        XCTAssertEqual(session.segments.map(\.personID), [anna.id, tom.id, anna.id, tom.id])
-        XCTAssertEqual(session.segments[2].origin, .cluster)
+        #expect(session.segments.map(\.personID) == [anna.id, tom.id, anna.id, tom.id])
+        #expect(session.segments[2].origin == .cluster)
     }
 
-    func testManualAssignmentWins() {
+    @Test func testManualAssignmentWins() {
         var (session, _, anna, tom) = makeSession()
         session.speakerTags = [SpeakerTag(time: 0, personID: anna.id)]
         session.segments = [TranscriptSegment(source: .system, start: 1, end: 2, text: "x", manualPersonID: tom.id)]
         SpeakerResolver.resolve(&session)
-        XCTAssertEqual(session.segments[0].personID, tom.id)
-        XCTAssertEqual(session.segments[0].origin, .manual)
+        #expect(session.segments[0].personID == tom.id)
+        #expect(session.segments[0].origin == .manual)
     }
 }
 
-final class SpeechChunkerTests: XCTestCase {
+struct SpeechChunkerTests {
     private func tone(_ seconds: Double, amplitude: Float = 0.2) -> [Float] {
         let n = Int(seconds * SpeechChunker.sampleRate)
         return (0..<n).map { amplitude * sin(Float($0) * 0.05) }
@@ -75,7 +76,7 @@ final class SpeechChunkerTests: XCTestCase {
         [Float](repeating: 0, count: Int(seconds * SpeechChunker.sampleRate))
     }
 
-    func testCutsAtPauseAndKeepsTimeline() {
+    @Test func testCutsAtPauseAndKeepsTimeline() {
         var chunker = SpeechChunker(source: .system)
         var chunks: [SpeechChunk] = []
         chunks += chunker.append(silence(2))
@@ -84,27 +85,27 @@ final class SpeechChunkerTests: XCTestCase {
         chunks += chunker.append(tone(1.5))
         if let last = chunker.flush() { chunks.append(last) }
 
-        XCTAssertEqual(chunks.count, 2)
-        XCTAssertEqual(chunks[0].startTime, 1.7, accuracy: 0.35)
-        XCTAssertEqual(chunks[1].startTime, 4.8, accuracy: 0.6)
+        #expect(chunks.count == 2)
+        #expect(abs(chunks[0].startTime - 1.7) <= 0.35)
+        #expect(abs(chunks[1].startTime - 4.8) <= 0.6)
     }
 
-    func testDropsPureSilence() {
+    @Test func testDropsPureSilence() {
         var chunker = SpeechChunker(source: .microphone)
-        XCTAssertTrue(chunker.append(silence(10)).isEmpty)
-        XCTAssertNil(chunker.flush())
+        #expect(chunker.append(silence(10)).isEmpty)
+        #expect(chunker.flush() == nil)
     }
 
-    func testMaxDurationSplitsLongSpeech() {
+    @Test func testMaxDurationSplitsLongSpeech() {
         var chunker = SpeechChunker(source: .system)
         let chunks = chunker.append(tone(60))
-        XCTAssertGreaterThanOrEqual(chunks.count, 2)
-        XCTAssertTrue(chunks.allSatisfy { $0.duration <= 25.1 })
+        #expect(chunks.count >= 2)
+        #expect(chunks.allSatisfy { $0.duration <= 25.1 })
     }
 }
 
-final class ExporterTests: XCTestCase {
-    func testMarkdownGroupsTurnsAndShowsParties() throws {
+struct ExporterTests {
+    @Test func testMarkdownGroupsTurnsAndShowsParties() throws {
         var session = Session.new(title: "Kickoff", ownerName: "Wayne")
         let anna = Person(name: "Anna", partyID: session.parties[1].id)
         session.people.append(anna)
@@ -120,21 +121,21 @@ final class ExporterTests: XCTestCase {
 
         let exporter = SessionExporter(session: session)
         let md = exporter.markdown()
-        XCTAssertTrue(md.contains("**Wayne (Wir)** `0:00`\nHallo zusammen. Legen wir los."))
-        XCTAssertTrue(md.contains("**Anna (Kunde)**"))
-        XCTAssertTrue(md.contains("- **Kunde:** Anna"))
+        #expect(md.contains("**Wayne (Wir)** `0:00`\nHallo zusammen. Legen wir los."))
+        #expect(md.contains("**Anna (Kunde)**"))
+        #expect(md.contains("- **Kunde:** Anna"))
 
         let proto = exporter.protocolMarkdown()
-        XCTAssertTrue(proto.contains("## Aufgaben\n\n- `0:06` ✅ Angebot schicken"))
+        #expect(proto.contains("## Aufgaben\n\n- `0:06` ✅ Angebot schicken"))
 
         let json = try exporter.export(.json)
         let decoded = try SessionExporter.decoder.decode(Session.self, from: json)
-        XCTAssertEqual(decoded, session)
+        #expect(decoded == session)
     }
 
-    func testTimeFormats() {
-        XCTAssertEqual(TimeFormat.clock(7), "0:07")
-        XCTAssertEqual(TimeFormat.clock(3723), "1:02:03")
-        XCTAssertEqual(TimeFormat.srt(62.345), "00:01:02,345")
+    @Test func testTimeFormats() {
+        #expect(TimeFormat.clock(7) == "0:07")
+        #expect(TimeFormat.clock(3723) == "1:02:03")
+        #expect(TimeFormat.srt(62.345) == "00:01:02,345")
     }
 }

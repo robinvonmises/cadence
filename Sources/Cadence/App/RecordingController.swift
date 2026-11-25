@@ -304,7 +304,7 @@ final class RecordingController: ObservableObject {
             Task { @MainActor in
                 guard let self, self.isRecording, var current = self.session else { return }
                 current.duration = self.elapsed
-                try? self.store.save(current, writeMarkdown: true)
+                _ = try? self.store.save(current, writeMarkdown: true)
             }
         }
     }

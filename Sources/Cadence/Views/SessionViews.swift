@@ -142,7 +142,7 @@ struct SavedSessionView: View {
         .onAppear { player.load(store.audioURL(draft.audio.combined ?? draft.audio.system, in: draft)) }
         .onDisappear { player.stop() }
         .onChange(of: draft) { _, newValue in
-            try? store.save(newValue)
+            _ = try? store.save(newValue)
         }
         .alert("Export fehlgeschlagen", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
             Button("OK", role: .cancel) {}
