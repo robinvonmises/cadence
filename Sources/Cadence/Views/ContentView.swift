@@ -9,10 +9,10 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             SidebarView()
-                .navigationSplitViewColumnWidth(min: 220, ideal: 250)
+                .navigationSplitViewColumnWidth(min: 230, ideal: 260)
         } detail: {
             switch navigation.selection {
-            case .live where recorder.session != nil:
+            case .live where recorder.session != nil && recorder.isBusy:
                 LiveSessionView()
             case .saved(let id):
                 if let entry = store.entries.first(where: { $0.id == id }) {
@@ -25,6 +25,7 @@ struct ContentView: View {
                 NewRecordingView()
             }
         }
+        .tint(Theme.accent)
         .onChange(of: recorder.phase) { oldPhase, newPhase in
             if newPhase == .recording { navigation.selection = .live }
             if newPhase == .idle, oldPhase != .idle, oldPhase != .preparing, let id = recorder.session?.id {
@@ -58,55 +59,78 @@ struct SidebarView: View {
         }
     }
 
+    /// Gespräche nach „Heute“, „Gestern“, „Diese Woche“, „Früher“ gruppieren.
+    private var groups: [(title: String, entries: [SessionStore.Entry])] {
+        let calendar = Calendar.current
+        var buckets: [(String, [SessionStore.Entry])] = [("Heute", []), ("Gestern", []), ("Diese Woche", []), ("Früher", [])]
+        for entry in filtered {
+            let date = entry.session.startedAt
+            let index: Int
+            if calendar.isDateInToday(date) { index = 0 }
+            else if calendar.isDateInYesterday(date) { index = 1 }
+            else if calendar.isDate(date, equalTo: Date(), toGranularity: .weekOfYear) { index = 2 }
+            else { index = 3 }
+            buckets[index].1.append(entry)
+        }
+        return buckets.filter { !$0.1.isEmpty }.map { (title: $0.0, entries: $0.1) }
+    }
+
     var body: some View {
         List(selection: $navigation.selection) {
             Section {
                 if recorder.isBusy, let session = recorder.session {
-                    Label {
-                        VStack(alignment: .leading) {
-                            Text(session.title).lineLimit(1)
-                            Text(recorder.isRecording ? TimeFormat.clock(recorder.elapsed) : "Wird verarbeitet …")
+                    HStack(spacing: 10) {
+                        ZStack {
+                            Circle().fill(Theme.record.opacity(0.18)).frame(width: 30, height: 30)
+                            Circle().fill(Theme.record).frame(width: 10, height: 10)
+                        }
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(session.title).font(.callout.weight(.semibold)).lineLimit(1)
+                            Text(recorder.isRecording ? "Aufnahme · \(TimeFormat.clock(recorder.elapsed))" : "Wird verarbeitet …")
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
-                    } icon: {
-                        Image(systemName: "record.circle.fill").foregroundStyle(.red)
                     }
+                    .padding(.vertical, 4)
                     .tag(Navigation.Selection.live)
                 } else {
-                    Label("Neue Aufnahme", systemImage: "plus.circle.fill")
-                        .tag(Navigation.Selection.newRecording)
+                    HStack(spacing: 10) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.gradient).frame(width: 30, height: 30)
+                            Image(systemName: "plus").font(.callout.weight(.bold)).foregroundStyle(.white)
+                        }
+                        Text("Neue Aufnahme").font(.callout.weight(.semibold))
+                    }
+                    .padding(.vertical, 4)
+                    .tag(Navigation.Selection.newRecording)
                 }
             }
 
-            Section("Gespräche") {
-                ForEach(filtered) { entry in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.session.title).lineLimit(1)
-                        Text("\(entry.session.startedAt.formatted(date: .abbreviated, time: .shortened)) · \(TimeFormat.duration(entry.session.duration))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .tag(Navigation.Selection.saved(entry.id))
-                    .contextMenu {
-                        Button("Im Finder zeigen") { NSWorkspace.shared.activateFileViewerSelecting([entry.folder]) }
-                        Divider()
-                        Button("In den Papierkorb legen", role: .destructive) { pendingDelete = entry.id }
+            ForEach(groups, id: \.title) { group in
+                Section(group.title) {
+                    ForEach(group.entries) { entry in
+                        SessionRow(session: entry.session)
+                            .tag(Navigation.Selection.saved(entry.id))
+                            .contextMenu {
+                                Button("Im Finder zeigen") { NSWorkspace.shared.activateFileViewerSelecting([entry.folder]) }
+                                Divider()
+                                Button("In den Papierkorb legen", role: .destructive) { pendingDelete = entry.id }
+                            }
                     }
                 }
             }
         }
-        .searchable(text: $search, placement: .sidebar, prompt: "Suchen")
-        .toolbar {
-            ToolbarItem {
-                Button {
-                    NSWorkspace.shared.open(store.rootFolder)
-                } label: {
-                    Label("Ordner öffnen", systemImage: "folder")
+        .listStyle(.sidebar)
+        .overlay {
+            if store.entries.isEmpty && !recorder.isBusy {
+                VStack(spacing: 6) {
+                    Image(systemName: "waveform").font(.title).foregroundStyle(.tertiary)
+                    Text("Noch keine Gespräche").font(.callout).foregroundStyle(.secondary)
                 }
-                .help("Speicherort im Finder öffnen")
+                .padding(.top, 120)
             }
         }
+        .searchable(text: $search, placement: .sidebar, prompt: "Gespräche durchsuchen")
         .confirmationDialog("Gespräch in den Papierkorb legen?", isPresented: Binding(
             get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }
         )) {
@@ -120,5 +144,39 @@ struct SidebarView: View {
         } message: {
             Text("Transkript und Audio werden in den Papierkorb verschoben.")
         }
+    }
+}
+
+private struct SessionRow: View {
+    let session: Session
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Theme.accent.opacity(0.12))
+                    .frame(width: 30, height: 30)
+                Image(systemName: session.segments.isEmpty ? "waveform.badge.exclamationmark" : "text.bubble.fill")
+                    .font(.caption)
+                    .foregroundStyle(session.segments.isEmpty ? Color.orange : Theme.accent)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(session.title).font(.callout.weight(.medium)).lineLimit(1)
+                Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var subtitle: String {
+        let calendar = Calendar.current
+        let recent = calendar.isDateInToday(session.startedAt) || calendar.isDateInYesterday(session.startedAt)
+        let when = recent
+            ? session.startedAt.formatted(date: .omitted, time: .shortened)
+            : session.startedAt.formatted(.dateTime.day().month(.abbreviated))
+        var parts = [when, TimeFormat.duration(session.duration)]
+        let others = session.people.filter { !$0.isMicrophoneOwner }.map(\.name)
+        if !others.isEmpty { parts.append(others.prefix(2).joined(separator: ", ") + (others.count > 2 ? " …" : "")) }
+        return parts.joined(separator: " · ")
     }
 }

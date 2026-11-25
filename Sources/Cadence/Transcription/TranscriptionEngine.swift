@@ -20,42 +20,61 @@ enum WhisperModelOption: String, CaseIterable, Identifiable {
     }
 }
 
+/// Speicherort der Modelle. Bewusst nicht ~/Documents: Liegt „Dokumente“ in iCloud Drive,
+/// verschiebt oder entlädt macOS halb geladene Dateien, und der Download bricht ab.
+enum ModelStorage {
+    static var folder: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let url = base.appendingPathComponent("Cadence/Models", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+}
+
 /// Lokale Transkription mit WhisperKit. Ein Actor, damit Abschnitte beider Spuren nacheinander
 /// abgearbeitet werden und das Modell nur einmal im Speicher liegt.
 actor TranscriptionEngine {
-    enum State: Equatable {
-        case idle
-        case loading(String)
-        case ready
-        case failed(String)
-    }
-
     private var whisper: WhisperKit?
     private var loadedModel: String?
-    private(set) var state: State = .idle
-    private var pending = 0
 
-    var backlog: Int { pending }
+    var isReady: Bool { whisper != nil }
 
-    func prepare(model: String) async throws {
+    /// Lädt das Modell herunter (falls nötig) und in den Speicher.
+    /// - Parameter progress: 0…1 während des Downloads, `nil` beim Laden in die Neural Engine.
+    func prepare(model: String, progress: @escaping @Sendable (Double?) -> Void) async throws {
         if loadedModel == model, whisper != nil { return }
-        state = .loading(model)
-        do {
-            let config = WhisperKitConfig(model: model, verbose: false, prewarm: true, load: true, download: true)
-            whisper = try await WhisperKit(config)
-            loadedModel = model
-            state = .ready
-        } catch {
-            state = .failed(error.localizedDescription)
-            throw error
+        whisper = nil
+        var lastError: Error?
+        // Zwei Versuche: Abgebrochene Downloads werden beim zweiten Mal fortgesetzt.
+        for _ in 0..<2 {
+            do {
+                let folder = try await WhisperKit.download(
+                    variant: model,
+                    downloadBase: ModelStorage.folder,
+                    progressCallback: { p in progress(p.fractionCompleted) }
+                )
+                progress(nil)
+                let config = WhisperKitConfig(
+                    model: model,
+                    modelFolder: folder.path,
+                    verbose: false,
+                    prewarm: true,
+                    load: true,
+                    download: false
+                )
+                whisper = try await WhisperKit(config)
+                loadedModel = model
+                return
+            } catch {
+                lastError = error
+            }
         }
+        throw lastError ?? CancellationError()
     }
 
     /// Transkribiert einen Abschnitt und liefert Segmente mit absoluten Zeiten.
     func transcribe(_ chunk: SpeechChunk, language: String?) async -> [TranscriptSegment] {
         guard let whisper else { return [] }
-        pending += 1
-        defer { pending -= 1 }
 
         let options = DecodingOptions(
             task: .transcribe,
@@ -87,6 +106,29 @@ actor TranscriptionEngine {
         }
     }
 
+    /// Transkribiert eine komplette Audiodatei (z. B. wenn das Modell während der Aufnahme
+    /// noch nicht bereit war).
+    func transcribeFile(_ url: URL, source: AudioSource, language: String?,
+                        progress: @escaping @Sendable (Double) -> Void) async throws -> [TranscriptSegment] {
+        let samples = try AudioMixdown.loadMono16k(url)
+        var chunker = SpeechChunker(source: source)
+        var chunks: [SpeechChunk] = []
+        let step = Int(SpeechChunker.sampleRate) // 1 s
+        var index = 0
+        while index < samples.count {
+            let end = min(index + step, samples.count)
+            chunks += chunker.append(Array(samples[index..<end]))
+            index = end
+        }
+        if let last = chunker.flush() { chunks.append(last) }
+        var segments: [TranscriptSegment] = []
+        for (n, chunk) in chunks.enumerated() {
+            segments += await transcribe(chunk, language: language)
+            progress(Double(n + 1) / Double(max(chunks.count, 1)))
+        }
+        return segments
+    }
+
     /// Entfernt Whisper-Steuerzeichen wie <|de|> und überflüssige Leerzeichen.
     static func clean(_ text: String) -> String {
         text.replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
@@ -111,7 +153,7 @@ actor DiarizationEngine {
     func diarize(samples: [Float], expectedSpeakers: Int?) async throws -> [DiarizedTurn] {
         guard samples.count > Int(SpeechChunker.sampleRate * 2) else { return [] }
         if speakerKit == nil {
-            speakerKit = try await SpeakerKit(PyannoteConfig(modelDownloadConfig: nil, download: true, load: true, verbose: false))
+            speakerKit = try await SpeakerKit(PyannoteConfig(downloadBase: ModelStorage.folder.path, load: true, verbose: false))
         }
         guard let speakerKit else { return [] }
         let options = PyannoteDiarizationOptions(numberOfSpeakers: expectedSpeakers)

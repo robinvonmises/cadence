@@ -8,6 +8,8 @@
 	<string>Cadence</string>
 	<key>CFBundleExecutable</key>
 	<string>Cadence</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.robinvonmises.cadence</string>
 	<key>CFBundleInfoDictionaryVersion</key>

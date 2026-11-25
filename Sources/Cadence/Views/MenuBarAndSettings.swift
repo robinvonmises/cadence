@@ -49,6 +49,7 @@ struct MenuBarView: View {
 
 struct SettingsView: View {
     @EnvironmentObject private var store: SessionStore
+    @EnvironmentObject private var models: ModelManager
     @AppStorage(SettingsKey.ownerName) private var ownerName = Defaults.ownerName
     @AppStorage(SettingsKey.ownPartyName) private var ownPartyName = "Wir"
     @AppStorage(SettingsKey.otherPartyName) private var otherPartyName = "Kunde"
@@ -80,6 +81,25 @@ struct SettingsView: View {
                     ForEach(WhisperModelOption.allCases) { option in
                         Text(option.label).tag(option.rawValue)
                     }
+                }
+                .onChange(of: model) { _, _ in models.reload() }
+                LabeledContent("Status") {
+                    HStack {
+                        switch models.status {
+                        case .ready: Label("Bereit", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                        case .downloading(let p): Text("Wird geladen – \(Int(p * 100)) %")
+                        case .loading: Text("Wird vorbereitet …")
+                        case .failed(let message): Text(message).foregroundStyle(.red)
+                        case .idle: Text("Nicht geladen")
+                        }
+                        Spacer()
+                        if !models.status.isWorking {
+                            Button(models.isReady ? "Neu laden" : "Laden") { models.reload() }
+                        }
+                    }
+                }
+                LabeledContent("Modellordner") {
+                    Button("Im Finder zeigen") { NSWorkspace.shared.open(ModelStorage.folder) }
                 }
                 Picker("Sprache", selection: $language) {
                     ForEach(LanguageOption.allCases) { option in

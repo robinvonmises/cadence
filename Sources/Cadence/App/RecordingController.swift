@@ -18,7 +18,8 @@ final class RecordingController: ObservableObject {
     @Published private(set) var elapsed: Double = 0
     @Published private(set) var micLevel: Float = 0
     @Published private(set) var systemLevel: Float = 0
-    @Published private(set) var modelStatus: String = ""
+    /// Nachbearbeitung eines gespeicherten Gesprächs (z. B. nachträglich transkribieren).
+    @Published private(set) var reprocessing: (id: UUID, status: String)?
     @Published private(set) var backlog: Int = 0
     @Published private(set) var currentSpeakerID: UUID?
     @Published var errorMessage: String?
@@ -26,7 +27,7 @@ final class RecordingController: ObservableObject {
     @Published var focusSpeakerFieldRequest = UUID()
 
     private let store: SessionStore
-    private let engine = TranscriptionEngine()
+    let models: ModelManager
     private let diarizer = DiarizationEngine()
     private let systemTap = SystemAudioTap()
     private let microphone = MicrophoneCapture()
@@ -37,9 +38,11 @@ final class RecordingController: ObservableObject {
     private var clockTimer: Timer?
     private var autosaveTimer: Timer?
     private var startDate = Date()
+    private var liveTranscriptionWorked = true
 
-    init(store: SessionStore) {
+    init(store: SessionStore, models: ModelManager) {
         self.store = store
+        self.models = models
     }
 
     var isRecording: Bool { phase == .recording }
@@ -132,25 +135,23 @@ final class RecordingController: ObservableObject {
         phase = .recording
         startTimers()
 
-        let model = defaults.string(forKey: SettingsKey.model) ?? WhisperModelOption.largeTurbo.rawValue
+        liveTranscriptionWorked = true
         transcriptionTask = Task { [weak self] in
-            await self?.runTranscription(stream: stream, model: model, language: language.whisperCode)
+            await self?.runTranscription(stream: stream, language: language.whisperCode)
         }
     }
 
-    private func runTranscription(stream: AsyncStream<SpeechChunk>, model: String, language: String?) async {
-        modelStatus = "Lade Sprachmodell … (beim ersten Mal wird es heruntergeladen)"
-        do {
-            try await engine.prepare(model: model)
-            modelStatus = ""
-        } catch {
-            modelStatus = "Sprachmodell konnte nicht geladen werden: \(error.localizedDescription). Audio wird trotzdem aufgenommen."
+    private func runTranscription(stream: AsyncStream<SpeechChunk>, language: String?) async {
+        // Abschnitte warten im Stream, bis das Modell bereit ist (z. B. beim ersten Download).
+        guard await models.ensureReady() else {
+            // Audio wird trotzdem aufgenommen; transkribiert wird nach dem Stoppen aus den Dateien.
+            liveTranscriptionWorked = false
             for await _ in stream {}
             return
         }
         for await chunk in stream {
             backlog += 1
-            let segments = await engine.transcribe(chunk, language: language)
+            let segments = await models.engine.transcribe(chunk, language: language)
             backlog -= 1
             add(segments)
         }
@@ -235,18 +236,13 @@ final class RecordingController: ObservableObject {
         let systemURL = folder.appendingPathComponent("system.m4a")
         let micURL = folder.appendingPathComponent("mikrofon.m4a")
 
-        if UserDefaults.standard.bool(forKey: SettingsKey.runDiarization),
-           FileManager.default.fileExists(atPath: systemURL.path) {
-            phase = .finishing("Sprecher werden erkannt …")
-            do {
-                let samples = try await Task.detached(priority: .userInitiated) {
-                    try AudioMixdown.loadMono16k(systemURL)
-                }.value
-                let turns = try await diarizer.diarize(samples: samples, expectedSpeakers: nil)
-                SpeakerResolver.finalize(&current, turns: turns)
-            } catch {
-                errorMessage = "Sprechertrennung fehlgeschlagen: \(error.localizedDescription). Live-Zuordnungen bleiben erhalten."
+        if !liveTranscriptionWorked {
+            await transcribeFromFiles(&current, folder: folder) { [weak self] status in
+                self?.phase = .finishing(status)
             }
+        }
+        await diarize(&current, systemURL: systemURL) { [weak self] status in
+            self?.phase = .finishing(status)
         }
 
         if UserDefaults.standard.bool(forKey: SettingsKey.saveAudio) {
@@ -258,7 +254,8 @@ final class RecordingController: ObservableObject {
             } catch {
                 // Einzelspuren bleiben in jedem Fall erhalten.
             }
-        } else {
+        } else if liveTranscriptionWorked || !current.segments.isEmpty {
+            // Audio nur löschen, wenn das Transkript sicher entstanden ist.
             try? FileManager.default.removeItem(at: systemURL)
             try? FileManager.default.removeItem(at: micURL)
             current.audio = AudioFiles()
@@ -280,6 +277,68 @@ final class RecordingController: ObservableObject {
         micLevel = 0
         systemLevel = 0
         phase = .idle
+    }
+
+    // MARK: - Nachbearbeitung (auch für gespeicherte Gespräche)
+
+    /// Transkribiert ein gespeichertes Gespräch aus seinen Audiodateien neu
+    /// (z. B. wenn das Sprachmodell während der Aufnahme nicht bereit war).
+    func retranscribe(_ id: UUID) async {
+        guard reprocessing == nil, let entry = store.entries.first(where: { $0.id == id }) else { return }
+        var session = entry.session
+        reprocessing = (id, "Sprachmodell wird geladen …")
+        await transcribeFromFiles(&session, folder: entry.folder) { [weak self] status in
+            self?.reprocessing = (id, status)
+        }
+        await diarize(&session, systemURL: entry.folder.appendingPathComponent("system.m4a")) { [weak self] status in
+            self?.reprocessing = (id, status)
+        }
+        try? store.save(session)
+        reprocessing = nil
+    }
+
+    private func transcribeFromFiles(_ session: inout Session, folder: URL, status: (String) -> Void) async {
+        status("Sprachmodell wird geladen …")
+        guard await models.ensureReady() else {
+            errorMessage = "Das Sprachmodell ist nicht verfügbar. Die Aufnahme ist gespeichert – du kannst sie später über „Transkribieren“ nachholen."
+            return
+        }
+        let language = session.language
+        var segments: [TranscriptSegment] = []
+        let tracks: [(AudioSource, String?, String)] = [
+            (.microphone, session.audio.microphone, "dein Mikrofon"),
+            (.system, session.audio.system, "die Gegenseite")
+        ]
+        for (source, name, label) in tracks {
+            guard let name else { continue }
+            let url = folder.appendingPathComponent(name)
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            status("Transkribiere \(label) …")
+            do {
+                segments += try await models.engine.transcribeFile(url, source: source, language: language) { _ in }
+            } catch {
+                errorMessage = "Transkription fehlgeschlagen: \(error.localizedDescription)"
+            }
+        }
+        guard !segments.isEmpty else { return }
+        session.segments = segments.sorted { $0.start < $1.start }
+        SpeakerResolver.resolve(&session)
+    }
+
+    private func diarize(_ session: inout Session, systemURL: URL, status: (String) -> Void) async {
+        guard UserDefaults.standard.bool(forKey: SettingsKey.runDiarization),
+              session.segments.contains(where: { $0.source == .system }),
+              FileManager.default.fileExists(atPath: systemURL.path) else { return }
+        status("Stimmen werden erkannt …")
+        do {
+            let samples = try await Task.detached(priority: .userInitiated) {
+                try AudioMixdown.loadMono16k(systemURL)
+            }.value
+            let turns = try await diarizer.diarize(samples: samples, expectedSpeakers: nil)
+            SpeakerResolver.finalize(&session, turns: turns)
+        } catch {
+            errorMessage = "Stimmenerkennung fehlgeschlagen: \(error.localizedDescription). Deine Live-Zuordnungen bleiben erhalten."
+        }
     }
 
     // MARK: - Intern

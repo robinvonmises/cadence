@@ -1,13 +1,14 @@
 import CadenceCore
 import SwiftUI
 
-/// Live: „Wer spricht gerade?“ – Personen per Klick, Hotkey oder Eintippen setzen.
-struct LiveSpeakerPanel: View {
+/// Leiste unter dem Live-Transkript: Wer spricht gerade? + schnelle Marker.
+struct SpeakerDock: View {
     @EnvironmentObject private var recorder: RecordingController
     @EnvironmentObject private var store: SessionStore
     @Binding var session: Session
     @State private var typedName = ""
     @State private var partyID: UUID?
+    @State private var note = ""
     @FocusState private var nameFocused: Bool
 
     /// Namen aus früheren Gesprächen als Vorschläge.
@@ -17,85 +18,131 @@ struct LiveSpeakerPanel: View {
         for entry in store.entries {
             for person in entry.session.people where !person.isMicrophoneOwner {
                 if seen.insert(person.name.lowercased()).inserted {
-                    result.append((person.name, entry.session.party(of: person)?.name))
+                    result.append((name: person.name, party: entry.session.party(of: person)?.name))
                 }
             }
         }
         return result.sorted { $0.name < $1.name }
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Wer spricht gerade?").font(.headline)
+    private var suggestions: [(name: String, party: String?)] {
+        let query = typedName.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return [] }
+        return Array(knownPeople.filter { $0.name.localizedCaseInsensitiveContains(query) }.prefix(4))
+    }
 
-            let people = session.hotkeyPeople
-            if people.isEmpty {
-                Text("Tippe unten den Namen der Person ein, die gerade spricht, und drücke ⏎.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 6) {
+                Text("Wer spricht gerade?").sectionTitle()
+                Spacer()
+                Text("⌃⌥ + Zahl").font(.caption2).foregroundStyle(.tertiary)
             }
-            FlowLayout(spacing: 6) {
-                ForEach(Array(people.enumerated()), id: \.element.id) { index, person in
-                    Button {
-                        recorder.setCurrentSpeaker(person.id)
-                    } label: {
-                        NameChip(
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(Array(session.hotkeyPeople.enumerated()), id: \.element.id) { index, person in
+                        SpeakerButton(
                             name: person.name,
                             color: session.color(for: person.id),
                             badge: "\(index + 1)",
-                            highlighted: recorder.currentSpeakerID == person.id
-                        )
+                            isActive: recorder.currentSpeakerID == person.id
+                        ) {
+                            recorder.setCurrentSpeaker(person.id)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .help("\(GlobalHotkeys.modifierSymbol)\(index + 1)")
+                    SpeakerButton(name: "Unbekannt", color: .gray, badge: "0", isActive: recorder.currentSpeakerID == nil) {
+                        recorder.setCurrentSpeaker(nil)
+                    }
+                    newPersonField
                 }
-                Button {
-                    recorder.setCurrentSpeaker(nil)
-                } label: {
-                    NameChip(name: "Unbekannt", color: .gray, badge: "0", highlighted: recorder.currentSpeakerID == nil)
-                }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 2)
+                .padding(.vertical, 4)
             }
 
-            HStack(spacing: 6) {
-                TextField("Name eintippen + ⏎", text: $typedName)
+            HStack(spacing: 8) {
+                MarkerButton(kind: .highlight, shortcut: "M") { recorder.addMarker(.highlight) }
+                MarkerButton(kind: .todo, shortcut: "A") { recorder.addMarker(.todo) }
+                MarkerButton(kind: .decision, shortcut: "E") { recorder.addMarker(.decision) }
+                TextField("Notiz mit Zeitstempel + ⏎", text: $note)
                     .textFieldStyle(.roundedBorder)
-                    .focused($nameFocused)
-                    .onSubmit(submit)
-                Picker("", selection: $partyID) {
-                    ForEach(session.parties) { party in
-                        Text(party.name).tag(Optional(party.id))
+                    .onSubmit {
+                        let text = note.trimmingCharacters(in: .whitespaces)
+                        guard !text.isEmpty else { return }
+                        recorder.addMarker(.note, text: text)
+                        note = ""
                     }
-                }
-                .labelsHidden()
-                .frame(width: 110)
-                if !knownPeople.isEmpty {
-                    Menu {
-                        ForEach(knownPeople, id: \.name) { known in
-                            Button(known.party.map { "\(known.name) (\($0))" } ?? known.name) {
-                                typedName = known.name
-                                if let match = session.parties.first(where: { $0.name == known.party }) { partyID = match.id }
-                                submit()
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "person.crop.circle.badge.clock")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .help("Personen aus früheren Gesprächen")
-                }
             }
         }
+        .padding(16)
+        .background(.bar)
         .onAppear { if partyID == nil { partyID = session.parties.dropFirst().first?.id ?? session.parties.first?.id } }
         .onChange(of: recorder.focusSpeakerFieldRequest) { _, _ in nameFocused = true }
     }
 
-    private func submit() {
-        let name = typedName.trimmingCharacters(in: .whitespaces)
+    private var newPersonField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "person.badge.plus").foregroundStyle(Theme.accent)
+                TextField("Name + ⏎", text: $typedName)
+                    .textFieldStyle(.plain)
+                    .frame(width: 130)
+                    .focused($nameFocused)
+                    .onSubmit { submit(typedName) }
+                Menu {
+                    ForEach(session.parties) { party in
+                        Button {
+                            partyID = party.id
+                        } label: {
+                            if partyID == party.id { Label(party.name, systemImage: "checkmark") } else { Text(party.name) }
+                        }
+                    }
+                } label: {
+                    NameChip(name: session.party(partyID)?.name ?? "Partei", color: session.party(partyID)?.color.color ?? .gray)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.background, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(nameFocused ? Theme.accent : Color.secondary.opacity(0.3), lineWidth: 1))
+
+            ForEach(suggestions, id: \.name) { known in
+                Button {
+                    if let match = session.parties.first(where: { $0.name == known.party }) { partyID = match.id }
+                    submit(known.name)
+                } label: {
+                    Text(known.party.map { "\(known.name) · \($0)" } ?? known.name)
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private func submit(_ raw: String) {
+        let name = raw.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
         recorder.speakerTyped(name, partyID: partyID)
         typedName = ""
+    }
+}
+
+private struct MarkerButton: View {
+    let kind: MarkerKind
+    let shortcut: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text("\(kind.emoji) \(kind.label)").font(.callout)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
+        .help("\(kind.label) markieren (⌃⌥\(shortcut))")
     }
 }
 
@@ -106,20 +153,21 @@ struct PartiesPanel: View {
     @State private var renameText = ""
 
     private enum RenameTarget: Identifiable {
-        case person(UUID), party(UUID), newParty
+        case person(UUID), party(UUID), newParty, newPerson(UUID)
         var id: String {
             switch self {
             case .person(let id): return "p\(id)"
             case .party(let id): return "g\(id)"
             case .newParty: return "new"
+            case .newPerson(let id): return "np\(id)"
             }
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Teilnehmer").font(.headline)
+                Text("Teilnehmer").sectionTitle()
                 Spacer()
                 Button {
                     renameText = ""
@@ -128,31 +176,42 @@ struct PartiesPanel: View {
                     Label("Partei", systemImage: "plus")
                 }
                 .buttonStyle(.borderless)
+                .font(.caption)
                 .help("Weitere Partei hinzufügen, z. B. einen Dienstleister")
             }
 
             ForEach(session.parties) { party in
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
                         Circle().fill(party.color.color).frame(width: 8, height: 8)
-                        Text(party.name).font(.subheadline.bold())
-                    }
-                    .contextMenu {
-                        Button("Umbenennen …") { renameText = party.name; renaming = .party(party.id) }
-                        if session.parties.count > 1 {
-                            Button("Partei entfernen", role: .destructive) { session.removeParty(party.id) }
+                        Text(party.name).font(.callout.weight(.semibold))
+                        Spacer()
+                        Menu {
+                            Button("Person hinzufügen …") { renameText = ""; renaming = .newPerson(party.id) }
+                            Button("Umbenennen …") { renameText = party.name; renaming = .party(party.id) }
+                            if session.parties.count > 1 {
+                                Divider()
+                                Button("Partei entfernen", role: .destructive) { session.removeParty(party.id) }
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
                         }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
                     }
                     let members = session.people(in: party)
                     if members.isEmpty {
-                        Text("—").foregroundStyle(.tertiary).padding(.leading, 14)
+                        Text("Noch niemand").font(.caption).foregroundStyle(.tertiary).padding(.leading, 14)
                     }
                     ForEach(members) { person in personRow(person) }
                 }
+                .padding(10)
+                .background(party.color.color.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
             let loose = session.peopleWithoutParty
             if !loose.isEmpty {
-                Text("Ohne Partei").font(.subheadline.bold())
+                Text("Ohne Partei").font(.callout.weight(.semibold))
                 ForEach(loose) { person in personRow(person) }
             }
         }
@@ -167,24 +226,24 @@ struct PartiesPanel: View {
         switch renaming {
         case .newParty: return "Neue Partei"
         case .party: return "Partei umbenennen"
+        case .newPerson: return "Person hinzufügen"
         default: return "Person umbenennen"
         }
     }
 
     private func personRow(_ person: Person) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: person.isMicrophoneOwner ? "mic.fill" : "person.fill")
-                .foregroundStyle(.secondary)
-                .frame(width: 14)
-            Text(person.name)
-            if person.isMicrophoneOwner { Text("(Mikrofon)").font(.caption).foregroundStyle(.secondary) }
+        HStack(spacing: 8) {
+            Avatar(name: person.name, color: session.color(for: person.id), size: 22)
+            Text(person.name).lineLimit(1)
+            if person.isMicrophoneOwner {
+                Image(systemName: "mic.fill").font(.caption2).foregroundStyle(.secondary)
+            }
             Spacer()
             let seconds = session.segments.filter { $0.personID == person.id }.reduce(0) { $0 + $1.duration }
             if seconds > 0 {
                 Text(TimeFormat.clock(seconds)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
         }
-        .padding(.leading, 14)
         .contentShape(Rectangle())
         .contextMenu {
             Button("Umbenennen …") { renameText = person.name; renaming = .person(person.id) }
@@ -208,6 +267,7 @@ struct PartiesPanel: View {
         case .person(let id): session.renamePerson(id, to: name)
         case .party(let id): session.renameParty(id, to: name)
         case .newParty: session.addParty(named: name)
+        case .newPerson(let partyID): session.addPerson(named: name, partyID: partyID)
         }
     }
 }
@@ -220,29 +280,34 @@ struct ClusterMappingPanel: View {
     var body: some View {
         let clusters = session.clusterIDs
         if !clusters.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Erkannte Stimmen").font(.headline)
-                Text("Cadence hat die Gegenseite automatisch in Stimmen getrennt. Ordne jede Stimme einer Person zu – das gilt dann für das ganze Gespräch.")
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Erkannte Stimmen").sectionTitle()
+                Text("Jede Stimme einmal zuordnen – das gilt dann fürs ganze Gespräch.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 ForEach(clusters, id: \.self) { cluster in
                     let segments = session.segments.filter { $0.clusterID == cluster }
                     let seconds = segments.reduce(0) { $0 + $1.duration }
-                    HStack {
-                        if let onListen, let first = segments.max(by: { $0.duration < $1.duration }) {
-                            Button { onListen(first.start) } label: { Image(systemName: "play.circle") }
-                                .buttonStyle(.borderless)
-                                .help("Probe anhören: „\(first.text.prefix(60))“")
+                    let assigned = session.clusterAssignments[cluster]
+                    HStack(spacing: 8) {
+                        if let onListen, let sample = segments.max(by: { $0.duration < $1.duration }) {
+                            Button { onListen(sample.start) } label: {
+                                Image(systemName: "play.circle.fill").font(.title3).foregroundStyle(Theme.accent)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Probe anhören: „\(sample.text.prefix(60))“")
                         }
-                        Text("Sprecher \(cluster + 1)")
-                        Text(TimeFormat.clock(seconds)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Stimme \(cluster + 1)").font(.callout.weight(.medium))
+                            Text(TimeFormat.clock(seconds)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                        }
                         Spacer()
                         Picker("", selection: Binding(
-                            get: { session.clusterAssignments[cluster] },
+                            get: { assigned },
                             set: { session.assign(cluster: cluster, to: $0) }
                         )) {
-                            Text("—").tag(UUID?.none)
+                            Text("Wer ist das?").tag(UUID?.none)
                             ForEach(session.people) { person in
                                 Text(person.name).tag(Optional(person.id))
                             }
@@ -250,6 +315,9 @@ struct ClusterMappingPanel: View {
                         .labelsHidden()
                         .frame(width: 140)
                     }
+                    .padding(8)
+                    .background((assigned == nil ? Color.orange : session.color(for: assigned)).opacity(0.08),
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
         }
@@ -265,17 +333,19 @@ struct MarkersPanel: View {
     @State private var kind: MarkerKind = .note
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Notizen & Marker").font(.headline)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Notizen & Marker").sectionTitle()
             HStack(spacing: 6) {
-                Picker("", selection: $kind) {
-                    ForEach(MarkerKind.allCases.filter { $0 != .consent }, id: \.self) { kind in
-                        Text("\(kind.emoji) \(kind.label)").tag(kind)
+                Menu {
+                    ForEach(MarkerKind.allCases.filter { $0 != .consent }, id: \.self) { option in
+                        Button("\(option.emoji) \(option.label)") { kind = option }
                     }
+                } label: {
+                    Text(kind.emoji)
                 }
-                .labelsHidden()
-                .frame(width: 130)
-                TextField("Notiz + ⏎", text: $text)
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                TextField("\(kind.label) + ⏎", text: $text)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit {
                         let trimmed = text.trimmingCharacters(in: .whitespaces)
@@ -283,13 +353,19 @@ struct MarkersPanel: View {
                         text = ""
                     }
             }
+            if session.markers.isEmpty {
+                Text("Noch keine Marker.").font(.caption).foregroundStyle(.tertiary)
+            }
             ForEach(session.markers.sorted { $0.time > $1.time }) { marker in
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Button(TimeFormat.clock(marker.time)) { onSeek?(marker.time) }
-                        .buttonStyle(.borderless)
-                        .font(.caption.monospacedDigit())
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(marker.kind.emoji)
-                    Text(marker.text).lineLimit(3)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(marker.text).lineLimit(3)
+                        Button(TimeFormat.clock(marker.time)) { onSeek?(marker.time) }
+                            .buttonStyle(.plain)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
                 }
                 .contextMenu {
@@ -300,7 +376,7 @@ struct MarkersPanel: View {
     }
 }
 
-/// Einfaches Umbruch-Layout für Namensschilder.
+/// Einfaches Umbruch-Layout für Chips.
 struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 

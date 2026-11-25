@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 
 struct LiveSessionView: View {
     @EnvironmentObject private var recorder: RecordingController
+    @State private var showInspector = true
 
     private var sessionBinding: Binding<Session> {
         Binding(
@@ -16,81 +17,116 @@ struct LiveSessionView: View {
     }
 
     var body: some View {
-        HSplitView {
-            VStack(spacing: 0) {
-                liveHeader
+        VStack(spacing: 0) {
+            liveHeader
+            ModelStatusBanner(duringRecording: true)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+            Divider()
+            TranscriptView(session: sessionBinding, isLive: true)
+            if recorder.isRecording {
                 Divider()
-                TranscriptView(session: sessionBinding, isLive: true)
+                SpeakerDock(session: sessionBinding)
             }
-            .frame(minWidth: 480)
-
+        }
+        .inspector(isPresented: $showInspector) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    LiveSpeakerPanel(session: sessionBinding)
-                    Divider()
-                    MarkersPanel(session: sessionBinding, currentTime: { recorder.currentTime })
-                    Divider()
+                VStack(alignment: .leading, spacing: 24) {
                     PartiesPanel(session: sessionBinding)
+                    MarkersPanel(session: sessionBinding, currentTime: { recorder.currentTime })
                 }
                 .padding(16)
             }
-            .frame(minWidth: 300, idealWidth: 340, maxWidth: 440)
+            .inspectorColumnWidth(min: 260, ideal: 300, max: 400)
         }
-        .disabled(!recorder.isRecording && recorder.phase == .idle)
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    showInspector.toggle()
+                } label: {
+                    Label("Seitenleiste", systemImage: "sidebar.right")
+                }
+            }
+        }
     }
 
     private var liveHeader: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
                 TextField("Titel", text: sessionBinding.title)
                     .textFieldStyle(.plain)
-                    .font(.title2.bold())
-                HStack(spacing: 6) {
-                    Image(systemName: "record.circle.fill").foregroundStyle(.red)
-                        .symbolEffect(.pulse, isActive: recorder.isRecording)
-                    Text(TimeFormat.clock(recorder.elapsed)).monospacedDigit()
-                    Text("· \(recorder.session?.sourceDescription ?? "")").foregroundStyle(.secondary)
+                    .font(.system(.title2, design: .rounded).weight(.bold))
+                HStack(spacing: 8) {
+                    if recorder.isRecording {
+                        Circle().fill(Theme.record).frame(width: 9, height: 9)
+                            .modifier(PulseModifier())
+                        Text("REC").font(.caption.weight(.heavy)).foregroundStyle(Theme.record)
+                    }
+                    Text(recorder.session?.sourceDescription ?? "")
                     if recorder.backlog > 1 {
-                        Text("· \(recorder.backlog) Abschnitte in der Warteschlange").foregroundStyle(.secondary)
+                        Text("· \(recorder.backlog) Abschnitte warten").foregroundStyle(.orange)
                     }
                 }
-                .font(.callout)
-                if !recorder.modelStatus.isEmpty {
-                    Label(recorder.modelStatus, systemImage: "arrow.down.circle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
+
             Spacer()
-            VStack(alignment: .trailing, spacing: 6) {
-                LevelMeter(label: "Mikrofon (du)", systemImage: "mic.fill", level: recorder.micLevel)
-                LevelMeter(label: "Systemaudio (Gegenseite)", systemImage: "speaker.wave.2.fill", level: recorder.systemLevel)
+
+            HStack(spacing: 14) {
+                meter("mic.fill", "Du", recorder.micLevel, PartyColor.blue.color)
+                meter("speaker.wave.2.fill", "Gegenseite", recorder.systemLevel, PartyColor.orange.color)
             }
-            Button {
-                recorder.addMarker(.highlight)
-            } label: {
-                Label("Markieren", systemImage: "star")
-            }
-            .help("Wichtige Stelle markieren (\(GlobalHotkeys.modifierSymbol)M)")
-            .disabled(!recorder.isRecording)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.background.secondary, in: Capsule())
+
+            Text(TimeFormat.clock(recorder.elapsed))
+                .font(.system(size: 26, weight: .semibold, design: .rounded).monospacedDigit())
+                .contentTransition(.numericText())
+                .frame(minWidth: 86, alignment: .trailing)
 
             if case .finishing(let status) = recorder.phase {
-                ProgressView().controlSize(.small)
-                Text(status).font(.callout).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(status).font(.callout).foregroundStyle(.secondary)
+                }
             } else {
-                Button(role: .destructive) {
+                Button {
                     Task { await recorder.stop() }
                 } label: {
                     Label("Beenden", systemImage: "stop.fill")
+                        .font(.headline)
+                        .padding(.horizontal, 6)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .tint(Theme.record)
                 .controlSize(.large)
+                .clipShape(Capsule())
                 .keyboardShortcut(".", modifiers: .command)
             }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .padding(.vertical, 14)
+    }
+
+    private func meter(_ icon: String, _ label: String, _ level: Float, _ color: Color) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.caption).foregroundStyle(.secondary)
+            LevelBars(level: level, color: color)
+        }
+        .help(label)
+    }
+}
+
+private struct PulseModifier: ViewModifier {
+    @State private var on = false
+    func body(content: Content) -> some View {
+        content
+            .opacity(on ? 0.35 : 1)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { on = true }
+            }
     }
 }
 
@@ -98,51 +134,115 @@ struct LiveSessionView: View {
 
 struct SavedSessionView: View {
     @EnvironmentObject private var store: SessionStore
+    @EnvironmentObject private var recorder: RecordingController
     let entry: SessionStore.Entry
 
     @State private var draft: Session
     @State private var search = ""
     @StateObject private var player = AudioPlayer()
     @State private var exportError: String?
+    @State private var showInspector = true
 
     init(entry: SessionStore.Entry) {
         self.entry = entry
         _draft = State(initialValue: entry.session)
     }
 
-    var body: some View {
-        HSplitView {
-            VStack(spacing: 0) {
-                header
-                Divider()
-                TranscriptView(
-                    session: $draft,
-                    isLive: false,
-                    filter: search,
-                    onSeek: player.isAvailable ? { player.play(from: $0) } : nil,
-                    playingTime: player.isPlaying ? player.currentTime : nil
-                )
-            }
-            .frame(minWidth: 480)
+    private var hasAudio: Bool {
+        [draft.audio.system, draft.audio.microphone].contains { name in
+            store.audioURL(name, in: draft) != nil
+        }
+    }
 
+    private var reprocessStatus: String? {
+        guard let job = recorder.reprocessing, job.id == draft.id else { return nil }
+        return job.status
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            if let reprocessStatus {
+                Banner(kind: .info, title: reprocessStatus, message: "Du kannst Cadence währenddessen normal weiterbenutzen.", progress: nil)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
+            } else if draft.segments.isEmpty && hasAudio {
+                Banner(kind: .warning, title: "Dieses Gespräch ist noch nicht transkribiert",
+                       message: "Die Aufnahme ist gespeichert. Cadence kann sie jetzt nachträglich transkribieren.") {
+                    Button("Jetzt transkribieren") {
+                        Task { await recorder.retranscribe(draft.id) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(recorder.isBusy)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
+            }
+            Divider()
+            TranscriptView(
+                session: $draft,
+                isLive: false,
+                filter: search,
+                onSeek: player.isAvailable ? { player.play(from: $0) } : nil,
+                playingTime: player.isPlaying ? player.currentTime : nil
+            )
+            if player.isAvailable {
+                Divider()
+                PlayerBar(player: player, duration: draft.duration)
+            }
+        }
+        .inspector(isPresented: $showInspector) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 24) {
                     ClusterMappingPanel(session: $draft, onListen: player.isAvailable ? { player.play(from: $0, duration: 6) } : nil)
                     PartiesPanel(session: $draft)
-                    Divider()
                     MarkersPanel(session: $draft, currentTime: { player.currentTime }, onSeek: { player.play(from: $0) })
-                    Divider()
                     statistics
                 }
                 .padding(16)
             }
-            .frame(minWidth: 300, idealWidth: 340, maxWidth: 440)
+            .inspectorColumnWidth(min: 260, ideal: 310, max: 420)
+        }
+        .toolbar {
+            ToolbarItemGroup {
+                Menu {
+                    ForEach(ExportFormat.allCases) { format in
+                        Button(format.label) { export(format) }
+                    }
+                    Divider()
+                    Button("Protokoll in die Zwischenablage") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(SessionExporter(session: draft).protocolMarkdown(), forType: .string)
+                    }
+                    if hasAudio && !draft.segments.isEmpty {
+                        Divider()
+                        Button("Neu transkribieren") { Task { await recorder.retranscribe(draft.id) } }
+                            .disabled(recorder.isBusy || recorder.reprocessing != nil)
+                    }
+                } label: {
+                    Label("Exportieren", systemImage: "square.and.arrow.up")
+                }
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([entry.folder])
+                } label: {
+                    Label("Im Finder zeigen", systemImage: "folder")
+                }
+                Button {
+                    showInspector.toggle()
+                } label: {
+                    Label("Seitenleiste", systemImage: "sidebar.right")
+                }
+            }
         }
         .searchable(text: $search, prompt: "Im Transkript suchen")
         .onAppear { player.load(store.audioURL(draft.audio.combined ?? draft.audio.system, in: draft)) }
         .onDisappear { player.stop() }
         .onChange(of: draft) { _, newValue in
             _ = try? store.save(newValue)
+        }
+        .onChange(of: entry.session) { _, newValue in
+            // Übernimmt Ergebnisse einer Nachbearbeitung (z. B. nachträgliche Transkription).
+            if newValue != draft { draft = newValue }
         }
         .alert("Export fehlgeschlagen", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -152,63 +252,50 @@ struct SavedSessionView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                TextField("Titel", text: $draft.title)
-                    .textFieldStyle(.plain)
-                    .font(.title2.bold())
-                Text("\(draft.startedAt.formatted(date: .complete, time: .shortened)) · \(TimeFormat.duration(draft.duration)) · \(draft.sourceDescription)")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if player.isAvailable {
-                Button {
-                    player.toggle()
-                } label: {
-                    Label(player.isPlaying ? "Pause" : "Abspielen", systemImage: player.isPlaying ? "pause.fill" : "play.fill")
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Titel", text: $draft.title)
+                .textFieldStyle(.plain)
+                .font(.system(.title2, design: .rounded).weight(.bold))
+            HStack(spacing: 8) {
+                InfoPill(icon: "calendar", text: draft.startedAt.formatted(date: .abbreviated, time: .shortened))
+                InfoPill(icon: "clock", text: TimeFormat.duration(draft.duration))
+                InfoPill(icon: "person.2", text: "\(draft.people.count) Personen")
+                if !draft.markers.isEmpty {
+                    InfoPill(icon: "star", text: "\(draft.markers.count) Marker")
                 }
-                Text(TimeFormat.clock(player.currentTime)).monospacedDigit().foregroundStyle(.secondary)
-            }
-            Menu {
-                ForEach(ExportFormat.allCases) { format in
-                    Button(format.label) { export(format) }
+                if draft.consentConfirmed {
+                    InfoPill(icon: "checkmark.shield", text: "Einwilligung")
                 }
-                Divider()
-                Button("Protokoll in Zwischenablage") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(SessionExporter(session: draft).protocolMarkdown(), forType: .string)
-                }
-            } label: {
-                Label("Exportieren", systemImage: "square.and.arrow.up")
-            }
-            .fixedSize()
-            Button {
-                NSWorkspace.shared.activateFileViewerSelecting([entry.folder])
-            } label: {
-                Label("Ordner", systemImage: "folder")
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .padding(.vertical, 14)
     }
 
     private var statistics: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Redeanteile").font(.headline)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Redeanteile").sectionTitle()
             let speaking = draft.speakingTime()
             let total = max(1, speaking.reduce(0) { $0 + $1.seconds })
-            ForEach(speaking, id: \.name) { entry in
-                HStack {
-                    Text(entry.name).frame(width: 110, alignment: .leading).lineLimit(1)
+            ForEach(speaking, id: \.name) { item in
+                let person = draft.people.first { $0.name == item.name }
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text(item.name).font(.callout).lineLimit(1)
+                        Spacer()
+                        Text("\(Int((item.seconds / total * 100).rounded())) %")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                     GeometryReader { geo in
-                        Capsule().fill(Color.accentColor.opacity(0.6))
-                            .frame(width: geo.size.width * entry.seconds / total)
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(.quaternary)
+                            Capsule().fill(draft.color(for: person?.id).gradient)
+                                .frame(width: max(4, geo.size.width * item.seconds / total))
+                        }
                     }
                     .frame(height: 6)
-                    Text("\(Int((entry.seconds / total * 100).rounded())) %")
-                        .font(.caption.monospacedDigit())
-                        .frame(width: 40, alignment: .trailing)
                 }
             }
         }
@@ -227,6 +314,55 @@ struct SavedSessionView: View {
     }
 }
 
+private struct InfoPill: View {
+    let icon: String
+    let text: String
+
+    var body: some View {
+        Label(text, systemImage: icon)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.background.secondary, in: Capsule())
+    }
+}
+
+private struct PlayerBar: View {
+    @ObservedObject var player: AudioPlayer
+    let duration: Double
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Button {
+                player.toggle()
+            } label: {
+                Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 30))
+                    .foregroundStyle(Theme.gradient)
+            }
+            .buttonStyle(.plain)
+
+            Text(TimeFormat.clock(player.currentTime))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .trailing)
+            Slider(value: Binding(
+                get: { player.currentTime },
+                set: { player.seek(to: $0) }
+            ), in: 0...max(1, player.duration > 0 ? player.duration : duration))
+            .tint(Theme.accent)
+            Text(TimeFormat.clock(player.duration > 0 ? player.duration : duration))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 52, alignment: .leading)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+}
+
 // MARK: - Wiedergabe
 
 @MainActor
@@ -238,6 +374,7 @@ final class AudioPlayer: ObservableObject {
     private var stopAt: Double?
 
     var isAvailable: Bool { player != nil }
+    var duration: Double { player?.duration ?? 0 }
 
     func load(_ url: URL?) {
         guard let url else { player = nil; return }
@@ -248,10 +385,17 @@ final class AudioPlayer: ObservableObject {
     func play(from time: Double, duration: Double? = nil) {
         guard let player else { return }
         player.currentTime = max(0, time - 0.3)
+        currentTime = player.currentTime
         stopAt = duration.map { time + $0 }
         player.play()
         isPlaying = true
         startTimer()
+    }
+
+    func seek(to time: Double) {
+        guard let player else { return }
+        player.currentTime = max(0, min(time, player.duration))
+        currentTime = player.currentTime
     }
 
     func toggle() {

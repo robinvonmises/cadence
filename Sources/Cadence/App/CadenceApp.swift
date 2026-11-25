@@ -6,13 +6,16 @@ import SwiftUI
 struct CadenceApp: App {
     @StateObject private var store: SessionStore
     @StateObject private var recorder: RecordingController
+    @StateObject private var models: ModelManager
     @StateObject private var navigation = Navigation()
 
     init() {
         Defaults.register()
         let store = SessionStore()
+        let models = ModelManager()
         _store = StateObject(wrappedValue: store)
-        _recorder = StateObject(wrappedValue: RecordingController(store: store))
+        _models = StateObject(wrappedValue: models)
+        _recorder = StateObject(wrappedValue: RecordingController(store: store, models: models))
         // Auch beim Start über `swift run` als normale App mit Dock-Symbol erscheinen.
         NSApplication.shared.setActivationPolicy(.regular)
     }
@@ -23,10 +26,15 @@ struct CadenceApp: App {
                 .environmentObject(store)
                 .environmentObject(recorder)
                 .environmentObject(navigation)
-                .frame(minWidth: 980, minHeight: 620)
+                .environmentObject(models)
+                .frame(minWidth: 1000, minHeight: 640)
                 .onAppear {
                     store.reload()
                     configureHotkeys()
+                }
+                .task {
+                    // Modell schon beim Start laden, damit es beim ersten Gespräch bereit ist.
+                    await models.ensureReady()
                 }
         }
         .commands {
@@ -72,6 +80,7 @@ struct CadenceApp: App {
         Settings {
             SettingsView()
                 .environmentObject(store)
+                .environmentObject(models)
         }
     }
 
