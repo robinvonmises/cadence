@@ -9,12 +9,14 @@ final class ModelManager: ObservableObject {
         case idle
         case downloading(Double)
         case loading
+        /// Modell liegt schon auf dem Mac und wird nur geladen – kein Hinweis nötig.
+        case warmingUp
         case ready
         case failed(String)
 
         var isWorking: Bool {
             switch self {
-            case .downloading, .loading: return true
+            case .downloading, .loading, .warmingUp: return true
             default: return false
             }
         }
@@ -43,13 +45,22 @@ final class ModelManager: ObservableObject {
         if let loadTask { return await loadTask.value }
 
         let model = modelName
-        status = .downloading(0)
+        let isLocal = ModelStorage.localModelFolder(for: model) != nil
+        status = isLocal ? .warmingUp : .downloading(0)
         errorDetails = nil
+        if isLocal {
+            // Dauert das Laden ungewöhnlich lange (z. B. erste Optimierung nach einem Update),
+            // doch einen Hinweis zeigen.
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(6))
+                if self?.status == .warmingUp { self?.status = .loading }
+            }
+        }
         let task = Task { [engine] () -> Bool in
             do {
                 try await engine.prepare(model: model) { progress in
                     Task { @MainActor [weak self] in
-                        guard let self, self.status != .ready else { return }
+                        guard let self, self.status != .ready, self.status != .warmingUp else { return }
                         if let progress {
                             self.status = .downloading(progress)
                         } else {

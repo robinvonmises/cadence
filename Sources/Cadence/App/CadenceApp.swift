@@ -109,6 +109,7 @@ final class Navigation: ObservableObject {
     enum Selection: Hashable {
         case newRecording
         case live
+        case people
         case saved(UUID)
     }
 

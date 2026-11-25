@@ -48,6 +48,29 @@ final class SessionStore: ObservableObject {
             loaded.append(Entry(id: session.id, folder: folder, session: session))
         }
         entries = loaded.sorted { $0.session.startedAt > $1.session.startedAt }
+        voices.seedIfNeeded(from: entries.map(\.session))
+    }
+
+    /// Gespräche, in denen eine Person (nach Name) dabei war – neueste zuerst.
+    func sessions(with name: String) -> [Session] {
+        entries.map(\.session).filter { session in
+            session.people.contains { !$0.isMicrophoneOwner && $0.name.caseInsensitiveCompare(name) == .orderedSame }
+        }
+    }
+
+    /// Person in allen gespeicherten Gesprächen umbenennen (z. B. nach einem Tippfehler).
+    func renamePersonEverywhere(from oldName: String, to newName: String) {
+        for entry in entries {
+            var session = entry.session
+            var changed = false
+            for index in session.people.indices
+            where !session.people[index].isMicrophoneOwner
+                && session.people[index].name.caseInsensitiveCompare(oldName) == .orderedSame {
+                session.people[index].name = newName
+                changed = true
+            }
+            if changed { _ = try? save(session) }
+        }
     }
 
     func folder(for session: Session) -> URL {

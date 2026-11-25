@@ -29,6 +29,25 @@ enum ModelStorage {
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
+
+    /// Bereits vollständig heruntergeladenes Modell finden (Ordner mit dem Modellnamen,
+    /// der die Core-ML-Bausteine enthält und keine halbfertigen Downloads).
+    static func localModelFolder(for model: String) -> URL? {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(at: folder, includingPropertiesForKeys: [.isDirectoryKey],
+                                             options: [.skipsHiddenFiles]) else { return nil }
+        for case let url as URL in enumerator {
+            if enumerator.level > 5 { enumerator.skipDescendants(); continue }
+            guard url.lastPathComponent == model, url.hasDirectoryPath else { continue }
+            let contents = (try? fm.contentsOfDirectory(atPath: url.path)) ?? []
+            let required = ["AudioEncoder.mlmodelc", "TextDecoder.mlmodelc", "MelSpectrogram.mlmodelc"]
+            if required.allSatisfy(contents.contains), !contents.contains(where: { $0.hasSuffix(".incomplete") }) {
+                return url
+            }
+            enumerator.skipDescendants()
+        }
+        return nil
+    }
 }
 
 /// Lokale Transkription mit WhisperKit. Ein Actor, damit Abschnitte beider Spuren nacheinander
@@ -46,14 +65,20 @@ actor TranscriptionEngine {
         whisper = nil
         var lastError: Error?
         // Zwei Versuche: Abgebrochene Downloads werden beim zweiten Mal fortgesetzt.
-        for _ in 0..<2 {
+        for attempt in 0..<2 {
             do {
-                let folder = try await WhisperKit.download(
-                    variant: model,
-                    downloadBase: ModelStorage.folder,
-                    progressCallback: { p in progress(p.fractionCompleted) }
-                )
-                progress(nil)
+                let folder: URL
+                if attempt == 0, let local = ModelStorage.localModelFolder(for: model) {
+                    // Schon da: kein Online-Abgleich, keine Download-Anzeige.
+                    folder = local
+                } else {
+                    folder = try await WhisperKit.download(
+                        variant: model,
+                        downloadBase: ModelStorage.folder,
+                        progressCallback: { p in progress(p.fractionCompleted) }
+                    )
+                    progress(nil)
+                }
                 let config = WhisperKitConfig(
                     model: model,
                     modelFolder: folder.path,
