@@ -131,6 +131,17 @@ struct SidebarView: View {
             }
         }
         .searchable(text: $search, placement: .sidebar, prompt: "Gespräche durchsuchen")
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    navigation.selection = recorder.isBusy ? .live : .newRecording
+                } label: {
+                    Label(recorder.isBusy ? "Zur Aufnahme" : "Neue Aufnahme",
+                          systemImage: recorder.isBusy ? "record.circle" : "plus")
+                }
+                .help(recorder.isBusy ? "Zur laufenden Aufnahme" : "Neue Aufnahme (⌘N)")
+            }
+        }
         .confirmationDialog("Gespräch in den Papierkorb legen?", isPresented: Binding(
             get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }
         )) {

@@ -29,15 +29,11 @@ struct LiveSessionView: View {
                 SpeakerDock(session: sessionBinding)
             }
         }
-        .inspector(isPresented: $showInspector) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    PartiesPanel(session: sessionBinding)
-                    MarkersPanel(session: sessionBinding, currentTime: { recorder.currentTime })
-                }
-                .padding(16)
+        .sidePanel(isPresented: $showInspector) {
+            VStack(alignment: .leading, spacing: 24) {
+                PartiesPanel(session: sessionBinding)
+                MarkersPanel(session: sessionBinding, currentTime: { recorder.currentTime })
             }
-            .inspectorColumnWidth(min: 260, ideal: 300, max: 400)
         }
         .toolbar {
             ToolbarItem {
@@ -119,6 +115,37 @@ struct LiveSessionView: View {
     }
 }
 
+/// Einblendbare rechte Seitenleiste. Bewusst ein einfaches HStack statt `.inspector`,
+/// weil `.inspector` innerhalb einer NavigationSplitView die Inhalte unter die Titelleiste schiebt.
+private struct SidePanel<Panel: View>: ViewModifier {
+    @Binding var isPresented: Bool
+    @ViewBuilder let panel: () -> Panel
+
+    func body(content: Content) -> some View {
+        HStack(spacing: 0) {
+            content.frame(maxWidth: .infinity, maxHeight: .infinity)
+            if isPresented {
+                Divider()
+                ScrollView {
+                    panel()
+                        .padding(16)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(width: 310)
+                .background(.background.secondary)
+                .transition(.move(edge: .trailing))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: isPresented)
+    }
+}
+
+extension View {
+    func sidePanel<Panel: View>(isPresented: Binding<Bool>, @ViewBuilder panel: @escaping () -> Panel) -> some View {
+        modifier(SidePanel(isPresented: isPresented, panel: panel))
+    }
+}
+
 private struct PulseModifier: ViewModifier {
     @State private var on = false
     func body(content: Content) -> some View {
@@ -191,17 +218,13 @@ struct SavedSessionView: View {
                 PlayerBar(player: player, duration: draft.duration)
             }
         }
-        .inspector(isPresented: $showInspector) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    ClusterMappingPanel(session: $draft, onListen: player.isAvailable ? { player.play(from: $0, duration: 6) } : nil)
-                    PartiesPanel(session: $draft)
-                    MarkersPanel(session: $draft, currentTime: { player.currentTime }, onSeek: { player.play(from: $0) })
-                    statistics
-                }
-                .padding(16)
+        .sidePanel(isPresented: $showInspector) {
+            VStack(alignment: .leading, spacing: 24) {
+                ClusterMappingPanel(session: $draft, onListen: player.isAvailable ? { player.play(from: $0, duration: 6) } : nil)
+                PartiesPanel(session: $draft)
+                MarkersPanel(session: $draft, currentTime: { player.currentTime }, onSeek: { player.play(from: $0) })
+                statistics
             }
-            .inspectorColumnWidth(min: 260, ideal: 310, max: 420)
         }
         .toolbar {
             ToolbarItemGroup {
