@@ -261,10 +261,14 @@ struct VoiceProfileTests {
 struct SummaryTests {
     @Test func testTranscriptChunksRespectLimitAndKeepTurns() {
         var session = Session.new(title: "Lang", ownerName: "Wayne")
-        session.segments = (0..<40).map { i in
-            TranscriptSegment(source: i % 2 == 0 ? .microphone : .system, start: Double(i * 10), end: Double(i * 10 + 5),
-                              text: String(repeating: "Wort ", count: 20))
+        let text = String(repeating: "Wort ", count: 20)
+        var segments: [TranscriptSegment] = []
+        for i in 0..<40 {
+            let source: AudioSource = i.isMultiple(of: 2) ? .microphone : .system
+            let start = Double(i) * 10
+            segments.append(TranscriptSegment(source: source, start: start, end: start + 5, text: text))
         }
+        session.segments = segments
         SpeakerResolver.resolve(&session)
         let chunks = SessionExporter(session: session).transcriptChunks(maxCharacters: 400)
         #expect(chunks.count > 1)
