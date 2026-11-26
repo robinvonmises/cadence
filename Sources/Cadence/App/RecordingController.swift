@@ -49,12 +49,6 @@ final class RecordingController: ObservableObject {
     @Published private(set) var audioWarning: String?
     /// Eigenes Mikrofon gerade stumm (live umschaltbar).
     @Published private(set) var micMuted = false
-    /// Noch unfertiger Live-Text je Spur (Wort für Wort, wird laufend überschrieben).
-    @Published private(set) var partials: [AudioSource: TranscriptSegment] = [:]
-    private var liveSpeech: [AudioSource: LiveSpeech] = [:]
-    /// Spuren, deren Live-Text von Apples Erkennung kommt (Whisper pausiert dort live).
-    private var appleLiveSources: Set<AudioSource> = []
-    private var whisperLiveIDs: [AudioSource: Set<UUID>] = [:]
     private let micMuteFlag = Locked(false)
     var hasMicrophone: Bool { micTrack != nil }
 
@@ -144,19 +138,8 @@ final class RecordingController: ObservableObject {
             liveDiarizationContinuation = liveContinuation
         }
         let liveContinuation = liveDiarizationContinuation
-        let wordByWord = defaults.bool(forKey: SettingsKey.wordByWord)
-            ? await LiveSpeech.isSupported(languageCode: language.whisperCode) : false
-        liveSpeech = [:]
-        appleLiveSources = []
-        whisperLiveIDs = [:]
-        partials = [:]
         for track in [systemTrack, micTrack].compactMap({ $0 }) {
             let source = track.source
-            if wordByWord {
-                let speech = LiveSpeech()
-                liveSpeech[source] = speech
-                track.onSpeechBuffer = { buffer in speech.append(buffer) }
-            }
             track.onChunk = { chunk in
                 continuation.yield(chunk)
                 if source == .system { liveContinuation?.yield(chunk) }
@@ -211,21 +194,6 @@ final class RecordingController: ObservableObject {
         startTimers()
 
         liveTranscriptionWorked = true
-        if let code = language.whisperCode {
-            for (source, speech) in liveSpeech {
-                Task {
-                    do {
-                        try await speech.start(languageCode: code, onPartial: { [weak self] text, start in
-                            Task { @MainActor [weak self] in self?.livePartial(source: source, text: text, start: start) }
-                        }, onFinal: { [weak self] text, start, end in
-                            Task { @MainActor [weak self] in self?.liveFinal(source: source, text: text, start: start, end: end) }
-                        })
-                    } catch {
-                        // Dann bleibt es bei Whisper für den Live-Text.
-                    }
-                }
-            }
-        }
         transcriptionTask = Task { [weak self] in
             await self?.runTranscription(stream: stream, language: language.whisperCode)
         }
@@ -249,44 +217,11 @@ final class RecordingController: ObservableObject {
             return
         }
         for await chunk in stream {
-            // Liefert Apples Live-Erkennung für diese Spur schon Text, braucht es Whisper live nicht.
-            if appleLiveSources.contains(chunk.source) { continue }
             backlog += 1
             let segments = await models.engine.transcribe(chunk, language: language)
             backlog -= 1
-            guard !appleLiveSources.contains(chunk.source) else { continue }
-            whisperLiveIDs[chunk.source, default: []].formUnion(segments.map(\.id))
             add(segments)
         }
-    }
-
-    // MARK: - Live-Text Wort für Wort
-
-    /// Ab dem ersten Wort von Apples Erkennung übernimmt sie die Spur. Sie hat das Audio von Anfang an,
-    /// also werden die bisherigen Whisper-Stücke dieser Spur ersetzt.
-    private func activateAppleLive(_ source: AudioSource) {
-        guard !appleLiveSources.contains(source) else { return }
-        appleLiveSources.insert(source)
-        guard var current = session, let ids = whisperLiveIDs[source], !ids.isEmpty else { return }
-        current.segments.removeAll { ids.contains($0.id) && $0.manualPersonID == nil }
-        session = current
-    }
-
-    private func livePartial(source: AudioSource, text: String, start: Double) {
-        guard isRecording || isBusy else { return }
-        if text.isEmpty {
-            partials[source] = nil
-            return
-        }
-        activateAppleLive(source)
-        partials[source] = TranscriptSegment(source: source, start: start, end: start + 1, text: text)
-    }
-
-    private func liveFinal(source: AudioSource, text: String, start: Double, end: Double) {
-        guard session != nil else { return }
-        activateAppleLive(source)
-        if partials[source].map({ $0.start <= end }) == true { partials[source] = nil }
-        add([TranscriptSegment(source: source, start: start, end: end, text: text)])
     }
 
     private func add(_ segments: [TranscriptSegment]) {
@@ -468,9 +403,6 @@ final class RecordingController: ObservableObject {
         session = current
 
         phase = .finishing(String(localized: "Restliche Abschnitte werden transkribiert …"))
-        for speech in liveSpeech.values { await speech.finish() }
-        liveSpeech = [:]
-        partials = [:]
         await transcriptionTask?.value
         await liveDiarizationTask?.value
         liveDiarizationTask = nil
@@ -642,10 +574,6 @@ final class RecordingController: ObservableObject {
         chunkContinuation = nil
         liveDiarizationContinuation?.finish()
         liveDiarizationContinuation = nil
-        let speeches = Array(liveSpeech.values)
-        liveSpeech = [:]
-        partials = [:]
-        Task { for speech in speeches { await speech.finish() } }
         phase = .idle
     }
 

@@ -20,8 +20,6 @@ enum SettingsKey {
     static let recordMicrophone = "recordMicrophone"
     /// Nach dem Gespräch die ganzen Aufnahmen noch einmal sorgfältig transkribieren.
     static let finalPass = "finalPass"
-    /// Live-Text Wort für Wort mit Apples Spracherkennung (macOS 26).
-    static let wordByWord = "wordByWord"
     /// UID des Eingangsgeräts; leer = Systemstandard.
     static let microphoneDevice = "microphoneDevice"
 }
@@ -44,7 +42,6 @@ enum Defaults {
             SettingsKey.language: "de",
             SettingsKey.recordMicrophone: true,
             SettingsKey.finalPass: true,
-            SettingsKey.wordByWord: true,
             SettingsKey.microphoneDevice: "",
             SettingsKey.storagePath: "",
             SettingsKey.saveAudio: true,

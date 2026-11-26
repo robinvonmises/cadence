@@ -1,3 +1,2 @@
 "NSMicrophoneUsageDescription" = "Cadence records your microphone as a separate track so your contributions are attributed to you in the transcript. Everything stays on this Mac.";
 "NSAudioCaptureUsageDescription" = "Cadence records the audio of your meeting app (Teams, Zoom, Meet …) to transcribe the conversation locally. Nothing leaves this Mac.";
-"NSSpeechRecognitionUsageDescription" = "Cadence shows the text live, word by word, using Apple speech recognition on this Mac.";

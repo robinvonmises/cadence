@@ -65,7 +65,6 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.liveDiarization) private var liveDiarization = true
     @AppStorage(SettingsKey.autoSummary) private var autoSummary = true
     @AppStorage(SettingsKey.finalPass) private var finalPass = true
-    @AppStorage(SettingsKey.wordByWord) private var wordByWord = true
     @State private var interfaceLanguage = InterfaceLanguage.current
     @State private var languageChanged = false
 
@@ -134,7 +133,6 @@ struct SettingsView: View {
                 Toggle("Stimmen automatisch trennen (Diarization)", isOn: $runDiarization)
                 Toggle("Stimmen schon während des Gesprächs erkennen", isOn: $liveDiarization)
                     .disabled(!runDiarization)
-                Toggle("Live-Text Wort für Wort (Apple-Spracherkennung, ab macOS 26)", isOn: $wordByWord)
                 Toggle("Nach dem Gespräch das ganze Transkript sauber neu erstellen", isOn: $finalPass)
                 Toggle("Nach dem Gespräch automatisch zusammenfassen", isOn: $autoSummary)
                 if let reason = Summarizer.unavailableReason {

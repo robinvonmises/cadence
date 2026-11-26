@@ -22,8 +22,6 @@ final class AudioTrackRecorder {
     var onChunk: (@Sendable (SpeechChunk) -> Void)?
     /// Pegel 0…1, wird auf der internen Queue aufgerufen.
     var onLevel: (@Sendable (Float) -> Void)?
-    /// 16-kHz-Mono-Audio für die Live-Erkennung, wird auf der internen Queue aufgerufen.
-    var onSpeechBuffer: (@Sendable (AVAudioPCMBuffer) -> Void)?
 
     init(source: AudioSource, fileURL: URL?) throws {
         self.source = source
@@ -75,7 +73,6 @@ final class AudioTrackRecorder {
 
         guard let asrConverter, let mono16 = convert(mono48, with: asrConverter, to: asrFormat),
               let channel = mono16.floatChannelData?[0] else { return }
-        onSpeechBuffer?(mono16)
         let samples = Array(UnsafeBufferPointer(start: channel, count: Int(mono16.frameLength)))
         for chunk in chunker.append(samples) { onChunk?(chunk) }
         onLevel?(min(1, SpeechChunker.rms(samples) * 6))
