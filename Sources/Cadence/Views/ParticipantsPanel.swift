@@ -47,7 +47,7 @@ struct SpeakerDock: View {
                             recorder.setCurrentSpeaker(person.id)
                         }
                     }
-                    SpeakerButton(name: "Unbekannt", color: .gray, badge: "0", isActive: recorder.currentSpeakerID == nil) {
+                    SpeakerButton(name: String(localized: "Unbekannt"), color: .gray, badge: "0", isActive: recorder.currentSpeakerID == nil) {
                         recorder.setCurrentSpeaker(nil)
                     }
                     newPersonField
@@ -95,7 +95,7 @@ struct SpeakerDock: View {
                         }
                     }
                 } label: {
-                    NameChip(name: session.party(partyID)?.name ?? "Partei", color: session.party(partyID)?.color.color ?? .gray)
+                    NameChip(name: session.party(partyID)?.name ?? String(localized: "Partei"), color: session.party(partyID)?.color.color ?? .gray)
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
@@ -221,10 +221,10 @@ struct PartiesPanel: View {
 
     private var alertTitle: String {
         switch renaming {
-        case .newParty: return "Neue Partei"
-        case .party: return "Partei umbenennen"
-        case .newPerson: return "Person hinzufügen"
-        default: return "Person umbenennen"
+        case .newParty: return String(localized: "Neue Partei")
+        case .party: return String(localized: "Partei umbenennen")
+        case .newPerson: return String(localized: "Person hinzufügen")
+        default: return String(localized: "Person umbenennen")
         }
     }
 
@@ -293,7 +293,7 @@ struct ClusterMappingPanel: View {
                                 Image(systemName: "play.circle.fill").font(.title3).foregroundStyle(Theme.accent)
                             }
                             .buttonStyle(.plain)
-                            .help("Probe anhören: „\(sample.text.prefix(60))“")
+                            .help("Probe anhören: „\(String(sample.text.prefix(60)))“")
                         }
                         VStack(alignment: .leading, spacing: 1) {
                             Text("Stimme \(cluster + 1)").font(.callout.weight(.medium))

@@ -13,9 +13,9 @@ enum WhisperModelOption: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .base: return "Base – sehr schnell, einfache Qualität (~150 MB)"
-        case .small: return "Small – schnell, gute Qualität (~500 MB)"
-        case .largeTurbo: return "Large v3 Turbo – beste Qualität, Apple Silicon empfohlen (~1,6 GB)"
+        case .base: return String(localized: "Base – sehr schnell, einfache Qualität (~150 MB)")
+        case .small: return String(localized: "Small – schnell, gute Qualität (~500 MB)")
+        case .largeTurbo: return String(localized: "Large v3 Turbo – beste Qualität, Apple Silicon empfohlen (~1,6 GB)")
         }
     }
 }

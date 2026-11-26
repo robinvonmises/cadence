@@ -93,12 +93,12 @@ final class ModelManager: ObservableObject {
     private static func shortMessage(_ details: String?) -> String {
         let text = (details ?? "").lowercased()
         if text.contains("offline") || text.contains("network") || text.contains("internet") || text.contains("timed out") {
-            return "Keine Internetverbindung für den Modell-Download."
+            return String(localized: "Keine Internetverbindung für den Modell-Download.")
         }
         if text.contains("space") || text.contains("speicherplatz") {
-            return "Zu wenig Speicherplatz für das Sprachmodell."
+            return String(localized: "Zu wenig Speicherplatz für das Sprachmodell.")
         }
-        return "Das Sprachmodell konnte nicht geladen werden."
+        return String(localized: "Das Sprachmodell konnte nicht geladen werden.")
     }
 }
 

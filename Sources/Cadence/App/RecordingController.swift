@@ -72,7 +72,7 @@ final class RecordingController: ObservableObject {
 
         let defaults = UserDefaults.standard
         guard await MicrophoneCapture.requestPermission() else {
-            fail("Kein Zugriff auf das Mikrofon. Bitte in Systemeinstellungen → Datenschutz & Sicherheit → Mikrofon erlauben.")
+            fail(String(localized: "Kein Zugriff auf das Mikrofon. Bitte in Systemeinstellungen → Datenschutz & Sicherheit → Mikrofon erlauben."))
             return
         }
 
@@ -83,7 +83,7 @@ final class RecordingController: ObservableObject {
         newSession.consentConfirmed = consentConfirmed
         newSession.audio = AudioFiles(system: "system.m4a", microphone: "mikrofon.m4a")
         if consentConfirmed {
-            newSession.addMarker(.consent, text: "Einwilligung zur Aufzeichnung bestätigt", at: 0)
+            newSession.addMarker(.consent, text: String(localized: "Einwilligung zur Aufzeichnung bestätigt"), at: 0)
         }
 
         newSession.startedAt = Date()
@@ -91,7 +91,7 @@ final class RecordingController: ObservableObject {
         do {
             folder = try store.save(newSession, writeMarkdown: false)
         } catch {
-            fail("Speicherort nicht beschreibbar: \(error.localizedDescription)")
+            fail(String(localized: "Speicherort nicht beschreibbar: \(error.localizedDescription)"))
             return
         }
         do {
@@ -99,7 +99,7 @@ final class RecordingController: ObservableObject {
             micTrack = try AudioTrackRecorder(source: .microphone, fileURL: folder.appendingPathComponent("mikrofon.m4a"))
         } catch {
             store.delete(newSession.id)
-            fail("Audiodateien konnten nicht angelegt werden: \(error.localizedDescription)")
+            fail(String(localized: "Audiodateien konnten nicht angelegt werden: \(error.localizedDescription)"))
             return
         }
 
@@ -133,7 +133,7 @@ final class RecordingController: ObservableObject {
             try systemTap.start(target: target) { buffer in systemRecorder?.append(buffer) }
         } catch {
             store.delete(newSession.id)
-            fail("Systemaudio konnte nicht aufgenommen werden: \(error.localizedDescription)\n\nPrüfe Systemeinstellungen → Datenschutz & Sicherheit → Bildschirm- & Systemaudioaufnahme.")
+            fail(String(localized: "Systemaudio konnte nicht aufgenommen werden: \(error.localizedDescription)\n\nPrüfe Systemeinstellungen → Datenschutz & Sicherheit → Bildschirm- & Systemaudioaufnahme."))
             return
         }
         do {
@@ -143,7 +143,7 @@ final class RecordingController: ObservableObject {
         } catch {
             systemTap.stop()
             store.delete(newSession.id)
-            fail("Mikrofon konnte nicht gestartet werden: \(error.localizedDescription)")
+            fail(String(localized: "Mikrofon konnte nicht gestartet werden: \(error.localizedDescription)"))
             return
         }
 
@@ -351,7 +351,7 @@ final class RecordingController: ObservableObject {
 
     func stop() async {
         guard isRecording, var current = session else { return }
-        phase = .finishing("Aufnahme wird beendet …")
+        phase = .finishing(String(localized: "Aufnahme wird beendet …"))
         stopTimers()
         current.duration = Date().timeIntervalSince(startDate)
         elapsed = current.duration
@@ -364,7 +364,7 @@ final class RecordingController: ObservableObject {
         liveDiarizationContinuation?.finish()
         session = current
 
-        phase = .finishing("Restliche Abschnitte werden transkribiert …")
+        phase = .finishing(String(localized: "Restliche Abschnitte werden transkribiert …"))
         await transcriptionTask?.value
         await liveDiarizationTask?.value
         liveDiarizationTask = nil
@@ -397,7 +397,7 @@ final class RecordingController: ObservableObject {
         }
 
         if UserDefaults.standard.bool(forKey: SettingsKey.saveAudio) {
-            phase = .finishing("Audio wird zusammengeführt …")
+            phase = .finishing(String(localized: "Audio wird zusammengeführt …"))
             let combinedURL = folder.appendingPathComponent("gesamt.m4a")
             do {
                 try await AudioMixdown.combine([systemURL, micURL], into: combinedURL)
@@ -417,7 +417,7 @@ final class RecordingController: ObservableObject {
         do {
             try store.save(current)
         } catch {
-            errorMessage = "Speichern fehlgeschlagen: \(error.localizedDescription)"
+            errorMessage = String(localized: "Speichern fehlgeschlagen: \(error.localizedDescription)")
         }
 
         systemTrack = nil
@@ -437,7 +437,7 @@ final class RecordingController: ObservableObject {
     func retranscribe(_ id: UUID) async {
         guard reprocessing == nil, let entry = store.entries.first(where: { $0.id == id }) else { return }
         var session = entry.session
-        reprocessing = (id, "Sprachmodell wird geladen …")
+        reprocessing = (id, String(localized: "Sprachmodell wird geladen …"))
         await transcribeFromFiles(&session, folder: entry.folder) { [weak self] status in
             self?.reprocessing = (id, status)
         }
@@ -465,26 +465,26 @@ final class RecordingController: ObservableObject {
     }
 
     private func transcribeFromFiles(_ session: inout Session, folder: URL, status: (String) -> Void) async {
-        status("Sprachmodell wird geladen …")
+        status(String(localized: "Sprachmodell wird geladen …"))
         guard await models.ensureReady() else {
-            errorMessage = "Das Sprachmodell ist nicht verfügbar. Die Aufnahme ist gespeichert – du kannst sie später über „Transkribieren“ nachholen."
+            errorMessage = String(localized: "Das Sprachmodell ist nicht verfügbar. Die Aufnahme ist gespeichert – du kannst sie später über „Transkribieren“ nachholen.")
             return
         }
         let language = session.language
         var segments: [TranscriptSegment] = []
         let tracks: [(AudioSource, String?, String)] = [
-            (.microphone, session.audio.microphone, "dein Mikrofon"),
-            (.system, session.audio.system, "die Gegenseite")
+            (.microphone, session.audio.microphone, String(localized: "dein Mikrofon")),
+            (.system, session.audio.system, String(localized: "die Gegenseite"))
         ]
         for (source, name, label) in tracks {
             guard let name else { continue }
             let url = folder.appendingPathComponent(name)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            status("Transkribiere \(label) …")
+            status(String(localized: "Transkribiere \(label) …"))
             do {
                 segments += try await models.engine.transcribeFile(url, source: source, language: language) { _ in }
             } catch {
-                errorMessage = "Transkription fehlgeschlagen: \(error.localizedDescription)"
+                errorMessage = String(localized: "Transkription fehlgeschlagen: \(error.localizedDescription)")
             }
         }
         guard !segments.isEmpty else { return }
@@ -496,7 +496,7 @@ final class RecordingController: ObservableObject {
         guard UserDefaults.standard.bool(forKey: SettingsKey.runDiarization),
               session.segments.contains(where: { $0.source == .system }),
               FileManager.default.fileExists(atPath: systemURL.path) else { return }
-        status("Stimmen werden erkannt …")
+        status(String(localized: "Stimmen werden erkannt …"))
         do {
             let samples = try await Task.detached(priority: .userInitiated) {
                 try AudioMixdown.loadMono16k(systemURL)
@@ -514,7 +514,7 @@ final class RecordingController: ObservableObject {
                 lastRecognizedNames = recognized
             }
         } catch {
-            errorMessage = "Stimmenerkennung fehlgeschlagen: \(error.localizedDescription). Deine Live-Zuordnungen bleiben erhalten."
+            errorMessage = String(localized: "Stimmenerkennung fehlgeschlagen: \(error.localizedDescription). Deine Live-Zuordnungen bleiben erhalten.")
         }
     }
 

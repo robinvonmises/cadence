@@ -11,7 +11,7 @@ enum SystemAudioTarget: Hashable, Codable {
 
     var label: String {
         switch self {
-        case .allSystemAudio: return "Gesamter Systemton"
+        case .allSystemAudio: return String(localized: "Gesamter Systemton")
         case .app(_, let name): return name
         }
     }

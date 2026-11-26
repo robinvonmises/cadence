@@ -79,8 +79,8 @@ struct LiveSessionView: View {
             Spacer()
 
             HStack(spacing: 14) {
-                meter("mic.fill", "Du", recorder.micLevel, PartyColor.blue.color)
-                meter("speaker.wave.2.fill", "Gegenseite", recorder.systemLevel, PartyColor.orange.color)
+                meter("mic.fill", String(localized: "Du"), recorder.micLevel, PartyColor.blue.color)
+                meter("speaker.wave.2.fill", String(localized: "Gegenseite"), recorder.systemLevel, PartyColor.orange.color)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -243,12 +243,12 @@ struct SavedSessionView: View {
         VStack(spacing: 0) {
             header
             if let reprocessStatus {
-                Banner(kind: .info, title: reprocessStatus, message: "Du kannst Cadence währenddessen normal weiterbenutzen.", progress: nil)
+                Banner(kind: .info, title: reprocessStatus, message: String(localized: "Du kannst Cadence währenddessen normal weiterbenutzen."), progress: nil)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 10)
             } else if draft.segments.isEmpty && hasAudio {
-                Banner(kind: .warning, title: "Dieses Gespräch ist noch nicht transkribiert",
-                       message: "Die Aufnahme ist gespeichert. Cadence kann sie jetzt nachträglich transkribieren.") {
+                Banner(kind: .warning, title: String(localized: "Dieses Gespräch ist noch nicht transkribiert"),
+                       message: String(localized: "Die Aufnahme ist gespeichert. Cadence kann sie jetzt nachträglich transkribieren.")) {
                     Button("Jetzt transkribieren") {
                         Task { await recorder.retranscribe(draft.id) }
                     }
@@ -342,16 +342,16 @@ struct SavedSessionView: View {
             HStack(spacing: 8) {
                 InfoPill(icon: "calendar", text: draft.startedAt.formatted(date: .abbreviated, time: .shortened))
                 InfoPill(icon: "clock", text: TimeFormat.duration(draft.duration))
-                InfoPill(icon: "person.2", text: "\(draft.people.count) Personen")
+                InfoPill(icon: "person.2", text: String(localized: "\(draft.people.count) Personen"))
                 if !draft.markers.isEmpty {
-                    InfoPill(icon: "star", text: "\(draft.markers.count) Marker")
+                    InfoPill(icon: "star", text: String(localized: "\(draft.markers.count) Marker"))
                 }
                 if draft.consentConfirmed {
-                    InfoPill(icon: "checkmark.shield", text: "Einwilligung")
+                    InfoPill(icon: "checkmark.shield", text: String(localized: "Einwilligung"))
                 }
                 if let recognized = draft.recognizedClusters, !recognized.isEmpty {
                     let names = recognized.keys.sorted().compactMap { draft.person(draft.clusterAssignments[$0])?.name }
-                    InfoPill(icon: "waveform", text: "Stimme erkannt: " + names.joined(separator: ", "))
+                    InfoPill(icon: "waveform", text: String(localized: "Stimme erkannt: \(names.joined(separator: ", "))"))
                         .help("Cadence hat diese Stimmen aus früheren Gesprächen wiedererkannt. Falls etwas nicht stimmt, rechts unter „Erkannte Stimmen“ korrigieren.")
                 }
             }

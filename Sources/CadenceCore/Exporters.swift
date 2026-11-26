@@ -11,11 +11,11 @@ public enum ExportFormat: String, CaseIterable, Identifiable, Sendable {
 
     public var label: String {
         switch self {
-        case .markdown: return "Transkript (Markdown)"
-        case .protocolMarkdown: return "Gesprächsprotokoll (Markdown)"
-        case .json: return "Rohdaten (JSON)"
-        case .srt: return "Untertitel (SRT)"
-        case .plainText: return "Reiner Text"
+        case .markdown: return String(localized: "Transkript (Markdown)")
+        case .protocolMarkdown: return String(localized: "Gesprächsprotokoll (Markdown)")
+        case .json: return String(localized: "Rohdaten (JSON)")
+        case .srt: return String(localized: "Untertitel (SRT)")
+        case .plainText: return String(localized: "Reiner Text")
         }
     }
 
@@ -133,10 +133,10 @@ public struct SessionExporter {
             lines.append("- **\(party.name):** \(members.joined(separator: ", "))")
         }
         let loose = session.peopleWithoutParty.map(\.name)
-        if !loose.isEmpty { lines.append("- **Ohne Partei:** \(loose.joined(separator: ", "))") }
+        if !loose.isEmpty { lines.append("- **\(String(localized: "Ohne Partei")):** \(loose.joined(separator: ", "))") }
         let unmappedClusters = session.clusterIDs.filter { session.clusterAssignments[$0] == nil }
         if !unmappedClusters.isEmpty {
-            lines.append("- **Nicht zugeordnet:** " + unmappedClusters.map { "Sprecher \($0 + 1)" }.joined(separator: ", "))
+            lines.append("- **\(String(localized: "Nicht zugeordnet")):** " + unmappedClusters.map { String(localized: "Sprecher \($0 + 1)") }.joined(separator: ", "))
         }
         return lines.joined(separator: "\n")
     }
@@ -154,8 +154,8 @@ public struct SessionExporter {
         guard let summary = session.summary else { return nil }
         var out = "\(session.title)\n\n\(summary.overview)\n"
         if !summary.keyPoints.isEmpty { out += "\n" + summary.keyPoints.map { "• \($0)" }.joined(separator: "\n") + "\n" }
-        if !summary.decisions.isEmpty { out += "\nEntscheidungen:\n" + summary.decisions.map { "• \($0)" }.joined(separator: "\n") + "\n" }
-        if !summary.actionItems.isEmpty { out += "\nAufgaben:\n" + summary.actionItems.map(actionLine).joined(separator: "\n") + "\n" }
+        if !summary.decisions.isEmpty { out += "\n\(String(localized: "Entscheidungen")):\n" + summary.decisions.map { "• \($0)" }.joined(separator: "\n") + "\n" }
+        if !summary.actionItems.isEmpty { out += "\n\(String(localized: "Aufgaben")):\n" + summary.actionItems.map(actionLine).joined(separator: "\n") + "\n" }
         return out
     }
 
@@ -186,16 +186,16 @@ public struct SessionExporter {
 
     public func markdown() -> String {
         var out = "# \(session.title)\n\n"
-        out += "_\(dateString) · Dauer \(TimeFormat.duration(session.duration))"
-        if !session.sourceDescription.isEmpty { out += " · Quelle: \(session.sourceDescription)" }
+        out += "_\(dateString) · \(String(localized: "Dauer")) \(TimeFormat.duration(session.duration))"
+        if !session.sourceDescription.isEmpty { out += " · \(String(localized: "Quelle")): \(session.sourceDescription)" }
         out += "_\n\n"
-        out += "## Teilnehmer\n\n\(participantsSection())\n\n"
+        out += "## \(String(localized: "Teilnehmer"))\n\n\(participantsSection())\n\n"
         if !session.markers.isEmpty {
-            out += "## Marker & Notizen\n\n"
+            out += "## \(String(localized: "Marker & Notizen"))\n\n"
             out += session.markers.sorted { $0.time < $1.time }.map(markerLine).joined(separator: "\n")
             out += "\n\n"
         }
-        out += "## Transkript\n\n"
+        out += "## \(String(localized: "Transkript"))\n\n"
         for turn in turns() {
             let party = turn.partyName.map { " (\($0))" } ?? ""
             out += "**\(turn.name)\(party)** `\(TimeFormat.clock(turn.start))`\n\(turn.text)\n\n"
@@ -212,33 +212,33 @@ public struct SessionExporter {
             return "## \(title)\n\n\(body)\n\n"
         }
 
-        var out = "# Gesprächsprotokoll: \(session.title)\n\n"
+        var out = "# \(String(localized: "Gesprächsprotokoll")): \(session.title)\n\n"
         out += "| | |\n|---|---|\n"
-        out += "| **Datum** | \(dateString) |\n"
-        out += "| **Dauer** | \(TimeFormat.duration(session.duration)) |\n"
-        if !session.sourceDescription.isEmpty { out += "| **Quelle** | \(session.sourceDescription) |\n" }
-        out += "| **Einwilligung zur Aufzeichnung** | \(session.consentConfirmed ? "bestätigt" : "nicht dokumentiert") |\n\n"
-        out += "## Teilnehmer\n\n\(participantsSection())\n\n"
+        out += "| **\(String(localized: "Datum"))** | \(dateString) |\n"
+        out += "| **\(String(localized: "Dauer"))** | \(TimeFormat.duration(session.duration)) |\n"
+        if !session.sourceDescription.isEmpty { out += "| **\(String(localized: "Quelle"))** | \(session.sourceDescription) |\n" }
+        out += "| **\(String(localized: "Einwilligung zur Aufzeichnung"))** | \(session.consentConfirmed ? String(localized: "bestätigt") : String(localized: "nicht dokumentiert")) |\n\n"
+        out += "## \(String(localized: "Teilnehmer"))\n\n\(participantsSection())\n\n"
         if let summary = session.summary {
-            out += "## Zusammenfassung\n\n\(summary.overview)\n\n"
+            out += "## \(String(localized: "Zusammenfassung"))\n\n\(summary.overview)\n\n"
             if !summary.keyPoints.isEmpty {
                 out += summary.keyPoints.map { "- \($0)" }.joined(separator: "\n") + "\n\n"
             }
             if !summary.decisions.isEmpty {
-                out += "### Entscheidungen (automatisch erkannt)\n\n" + summary.decisions.map { "- \($0)" }.joined(separator: "\n") + "\n\n"
+                out += "### \(String(localized: "Entscheidungen (automatisch erkannt)"))\n\n" + summary.decisions.map { "- \($0)" }.joined(separator: "\n") + "\n\n"
             }
             if !summary.actionItems.isEmpty {
-                out += "### Aufgaben (automatisch erkannt)\n\n" + summary.actionItems.map(actionLine).joined(separator: "\n") + "\n\n"
+                out += "### \(String(localized: "Aufgaben (automatisch erkannt)"))\n\n" + summary.actionItems.map(actionLine).joined(separator: "\n") + "\n\n"
             }
         }
-        out += section("Entscheidungen", [.decision], empty: "_Keine markiert._")
-        out += section("Aufgaben", [.todo], empty: "_Keine markiert._")
-        out += section("Wichtige Stellen & Notizen", [.highlight, .note], empty: "_Keine._")
+        out += section(String(localized: "Entscheidungen"), [.decision], empty: "_\(String(localized: "Keine markiert."))_")
+        out += section(String(localized: "Aufgaben"), [.todo], empty: "_\(String(localized: "Keine markiert."))_")
+        out += section(String(localized: "Wichtige Stellen & Notizen"), [.highlight, .note], empty: "_\(String(localized: "Keine."))_")
 
         let speaking = session.speakingTime()
         let total = speaking.reduce(0) { $0 + $1.seconds }
         if total > 0 {
-            out += "## Redeanteile\n\n"
+            out += "## \(String(localized: "Redeanteile"))\n\n"
             for entry in speaking {
                 let percent = Int((entry.seconds / total * 100).rounded())
                 out += "- \(entry.name): \(percent) % (\(TimeFormat.clock(entry.seconds)))\n"
@@ -246,7 +246,7 @@ public struct SessionExporter {
             out += "\n"
         }
 
-        out += "## Gesprächsverlauf\n\n"
+        out += "## \(String(localized: "Gesprächsverlauf"))\n\n"
         for turn in turns() {
             out += "- `\(TimeFormat.clock(turn.start))` **\(turn.name):** \(turn.text)\n"
         }

@@ -20,7 +20,7 @@ struct MenuBarView: View {
                         Text((recorder.currentSpeakerID == person.id ? "✓ " : "") + "\(index + 1)  \(person.name)")
                     }
                 }
-                Button((recorder.currentSpeakerID == nil ? "✓ " : "") + "0  Unbekannt") { recorder.setCurrentSpeaker(nil) }
+                Button((recorder.currentSpeakerID == nil ? "✓ " : "") + String(localized: "0  Unbekannt")) { recorder.setCurrentSpeaker(nil) }
             }
             Divider()
             Button("⭐️ Wichtige Stelle") { recorder.addMarker(.highlight) }
@@ -49,10 +49,11 @@ struct MenuBarView: View {
 
 struct SettingsView: View {
     @EnvironmentObject private var store: SessionStore
+    @EnvironmentObject private var recorder: RecordingController
     @EnvironmentObject private var models: ModelManager
     @AppStorage(SettingsKey.ownerName) private var ownerName = Defaults.ownerName
-    @AppStorage(SettingsKey.ownPartyName) private var ownPartyName = "Wir"
-    @AppStorage(SettingsKey.otherPartyName) private var otherPartyName = "Kunde"
+    @AppStorage(SettingsKey.ownPartyName) private var ownPartyName = String(localized: "Wir")
+    @AppStorage(SettingsKey.otherPartyName) private var otherPartyName = String(localized: "Kunde")
     @AppStorage(SettingsKey.model) private var model = WhisperModelOption.largeTurbo.rawValue
     @AppStorage(SettingsKey.language) private var language = LanguageOption.german.rawValue
     @AppStorage(SettingsKey.storagePath) private var storagePath = ""
@@ -63,6 +64,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.globalHotkeys) private var globalHotkeys = true
     @AppStorage(SettingsKey.liveDiarization) private var liveDiarization = true
     @AppStorage(SettingsKey.autoSummary) private var autoSummary = true
+    @State private var interfaceLanguage = InterfaceLanguage.current
+    @State private var languageChanged = false
 
     var body: some View {
         TabView {
@@ -75,6 +78,24 @@ struct SettingsView: View {
                     .onChange(of: globalHotkeys) { _, enabled in
                         enabled ? GlobalHotkeys.shared.register() : GlobalHotkeys.shared.unregister()
                     }
+                Picker("Sprache der Oberfläche", selection: $interfaceLanguage) {
+                    ForEach(InterfaceLanguage.allCases) { Text($0.label).tag($0) }
+                }
+                .onChange(of: interfaceLanguage) { _, language in
+                    language.apply()
+                    languageChanged = true
+                }
+                if languageChanged {
+                    HStack {
+                        Text("Wird nach einem Neustart von Cadence übernommen.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Jetzt neu starten") { AppRelauncher.relaunch() }
+                            .disabled(recorder.isBusy)
+                            .help(recorder.isBusy ? "Erst die laufende Aufnahme beenden" : "")
+                    }
+                }
             }
             .tabItem { Label("Allgemein", systemImage: "gearshape") }
 
@@ -157,7 +178,7 @@ struct SettingsView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
-        panel.prompt = "Auswählen"
+        panel.prompt = String(localized: "Auswählen")
         if panel.runModal() == .OK, let url = panel.url {
             storagePath = url.path
             store.reload()
@@ -192,7 +213,7 @@ private struct VoiceProfilesSettings: View {
                             Avatar(name: profile.name, color: Theme.accent, size: 24)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(profile.name)
-                                Text([profile.partyName, "\(profile.sessionCount) \(profile.sessionCount == 1 ? "Gespräch" : "Gespräche")"]
+                                Text([profile.partyName, profile.sessionCount == 1 ? String(localized: "1 Gespräch") : String(localized: "\(profile.sessionCount) Gespräche")]
                                     .compactMap { $0 }.joined(separator: " · "))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)

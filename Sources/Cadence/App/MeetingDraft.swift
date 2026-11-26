@@ -14,15 +14,15 @@ struct MeetingDraft: Equatable {
 
     static func fromDefaults() -> MeetingDraft {
         let defaults = UserDefaults.standard
-        let own = Party(name: defaults.string(forKey: SettingsKey.ownPartyName) ?? "Wir", color: .blue)
-        let other = Party(name: defaults.string(forKey: SettingsKey.otherPartyName) ?? "Kunde", color: .orange)
+        let own = Party(name: defaults.string(forKey: SettingsKey.ownPartyName) ?? String(localized: "Wir"), color: .blue)
+        let other = Party(name: defaults.string(forKey: SettingsKey.otherPartyName) ?? String(localized: "Kunde"), color: .orange)
         return MeetingDraft(parties: [own, other], people: [], ownerPartyID: own.id)
     }
 
     /// So sähe das Gespräch aus – u. a. für die Ziffern 1–9 der Tastenkürzel.
     func makeSession(ownerName: String) -> Session {
         Session.new(
-            title: title.trimmingCharacters(in: .whitespaces).isEmpty ? "Gespräch" : title,
+            title: title.trimmingCharacters(in: .whitespaces).isEmpty ? String(localized: "Gespräch") : title,
             ownerName: ownerName,
             parties: parties,
             ownerPartyID: ownerPartyID,
@@ -91,7 +91,7 @@ struct MeetingDraft: Equatable {
 
     /// Internes Meeting: eine einzige Partei, alle gehören dazu.
     mutating func makeInternal() {
-        let party = Party(name: "Intern", color: .blue)
+        let party = Party(name: String(localized: "Intern"), color: .blue)
         parties = [party]
         ownerPartyID = party.id
         for index in people.indices { people[index].partyID = party.id }

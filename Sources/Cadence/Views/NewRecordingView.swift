@@ -133,7 +133,7 @@ struct NewRecordingView: View {
                 .help("Liste der laufenden Apps aktualisieren")
             }
             FlowLayout(spacing: 8) {
-                SourceChip(title: "Alle Apps", systemImage: "square.stack.3d.up.fill", icon: nil,
+                SourceChip(title: String(localized: "Alle Apps"), systemImage: "square.stack.3d.up.fill", icon: nil,
                            isSelected: target == .allSystemAudio) {
                     target = .allSystemAudio
                 }
@@ -232,8 +232,8 @@ struct NewRecordingView: View {
     }
 
     private var permissionBanner: some View {
-        Banner(kind: .warning, title: "Cadence braucht Zugriff auf dein Mikrofon",
-               message: "Damit deine eigenen Beiträge im Transkript landen.") {
+        Banner(kind: .warning, title: String(localized: "Cadence braucht Zugriff auf dein Mikrofon"),
+               message: String(localized: "Damit deine eigenen Beiträge im Transkript landen.")) {
             Button("Freigeben") {
                 Task {
                     _ = await MicrophoneCapture.requestPermission()
@@ -407,7 +407,7 @@ private struct PartySetupCard: View {
 
             FlowLayout(spacing: 6) {
                 if isOwnersParty {
-                    NameChip(name: "\(ownerName) (du)", color: party.color.color, badge: "🎙")
+                    NameChip(name: String(localized: "\(ownerName) (du)"), color: party.color.color, badge: "🎙")
                         .help("Du am Mikrofon – wirst immer automatisch erkannt")
                 }
                 ForEach(draft.people(in: party)) { person in
@@ -572,13 +572,13 @@ struct HotkeyCheatSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                row("⌃⌥ 1 … 9", "Diese Person spricht gerade")
-                row("⌃⌥ 0", "Sprecher unbekannt")
-                row("⌃⌥ N", "Neuen Namen eintippen")
-                row("⌃⌥ M", "Wichtige Stelle markieren")
-                row("⌃⌥ A", "Aufgabe markieren")
-                row("⌃⌥ E", "Entscheidung markieren")
-                row("⌃⌥ R", "Aufnahme beenden")
+                row("⌃⌥ 1 … 9", String(localized: "Diese Person spricht gerade"))
+                row("⌃⌥ 0", String(localized: "Sprecher unbekannt"))
+                row("⌃⌥ N", String(localized: "Neuen Namen eintippen"))
+                row("⌃⌥ M", String(localized: "Wichtige Stelle markieren"))
+                row("⌃⌥ A", String(localized: "Aufgabe markieren"))
+                row("⌃⌥ E", String(localized: "Entscheidung markieren"))
+                row("⌃⌥ R", String(localized: "Aufnahme beenden"))
             }
         }
     }

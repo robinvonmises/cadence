@@ -28,7 +28,7 @@ final class MicrophoneCapture {
         }
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw NSError(domain: "Cadence", code: 1, userInfo: [NSLocalizedDescriptionKey: "Kein Mikrofon gefunden."])
+            throw NSError(domain: "Cadence", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "Kein Mikrofon gefunden.")])
         }
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
             handler(buffer)

@@ -86,6 +86,7 @@ struct CadenceApp: App {
         Settings {
             SettingsView()
                 .environmentObject(store)
+                .environmentObject(recorder)
                 .environmentObject(models)
                 .environmentObject(voices)
         }
@@ -151,5 +152,18 @@ private struct MenuBarLabel: View {
     var body: some View {
         Image(systemName: isRecording ? "record.circle.fill" : "waveform")
             .onAppear { MainWindow.open = { openWindow(id: "main") } }
+    }
+}
+
+/// Startet Cadence neu, z. B. nach dem Wechsel der Oberflächensprache.
+@MainActor
+enum AppRelauncher {
+    static func relaunch() {
+        let path = Bundle.main.bundlePath
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", path]
+        try? process.run()
+        NSApp.terminate(nil)
     }
 }

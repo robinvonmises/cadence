@@ -112,7 +112,7 @@ enum AudioMixdown {
         }
         try? FileManager.default.removeItem(at: output)
         guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
-            throw NSError(domain: "Cadence", code: 2, userInfo: [NSLocalizedDescriptionKey: "Export nicht möglich"])
+            throw NSError(domain: "Cadence", code: 2, userInfo: [NSLocalizedDescriptionKey: String(localized: "Export nicht möglich")])
         }
         export.outputURL = output
         export.outputFileType = .m4a

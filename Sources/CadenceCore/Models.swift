@@ -122,11 +122,11 @@ public enum MarkerKind: String, Codable, CaseIterable, Sendable {
 
     public var label: String {
         switch self {
-        case .note: return "Notiz"
-        case .highlight: return "Wichtig"
-        case .todo: return "Aufgabe"
-        case .decision: return "Entscheidung"
-        case .consent: return "Einwilligung"
+        case .note: return String(localized: "Notiz")
+        case .highlight: return String(localized: "Wichtig")
+        case .todo: return String(localized: "Aufgabe")
+        case .decision: return String(localized: "Entscheidung")
+        case .consent: return String(localized: "Einwilligung")
         }
     }
 
@@ -280,8 +280,8 @@ public struct Session: Identifiable, Codable, Hashable, Sendable {
 
     public static var defaultParties: [Party] {
         [
-            Party(name: "Wir", color: .blue),
-            Party(name: "Kunde", color: .orange)
+            Party(name: String(localized: "Wir"), color: .blue),
+            Party(name: String(localized: "Kunde"), color: .orange)
         ]
     }
 
@@ -341,10 +341,10 @@ public struct Session: Identifiable, Codable, Hashable, Sendable {
     /// Anzeigename für einen Abschnitt, mit sinnvollen Rückfallebenen.
     public func displayName(for segment: TranscriptSegment) -> String {
         if let person = person(segment.personID) { return person.name }
-        if let cluster = segment.clusterID { return "Sprecher \(cluster + 1)" }
+        if let cluster = segment.clusterID { return String(localized: "Sprecher \(cluster + 1)") }
         switch segment.source {
-        case .microphone: return microphoneOwner?.name ?? "Ich"
-        case .system: return "Unbekannt"
+        case .microphone: return microphoneOwner?.name ?? String(localized: "Ich")
+        case .system: return String(localized: "Unbekannt")
         }
     }
 

@@ -31,7 +31,7 @@ final class SystemAudioTap {
         case .app(let bundleID, let name):
             let processes = AudioSourceCatalog.audioProcessObjects(forBundlePrefix: bundleID)
             guard !processes.isEmpty else {
-                throw CoreAudioError("\(name) gibt gerade keinen Ton aus oder ist nicht gestartet. Tipp: „Gesamter Systemton“ funktioniert immer.", -1)
+                throw CoreAudioError(String(localized: "\(name) gibt gerade keinen Ton aus oder ist nicht gestartet. Tipp: „Gesamter Systemton“ funktioniert immer."), -1)
             }
             description = CATapDescription(stereoMixdownOfProcesses: processes)
         }

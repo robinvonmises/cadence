@@ -24,7 +24,7 @@ struct PeopleView: View {
             if b.isEmpty { return true }
             return a.localizedCaseInsensitiveCompare(b) == .orderedAscending
         }
-        .map { (title: $0.isEmpty ? "Ohne Partei" : $0, people: grouped[$0] ?? []) }
+        .map { (title: $0.isEmpty ? String(localized: "Ohne Partei") : $0, people: grouped[$0] ?? []) }
     }
 
     var body: some View {
@@ -162,7 +162,7 @@ private struct PersonDetail: View {
                     Avatar(name: name.isEmpty ? contact.name : name, color: Theme.accent, size: 56)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(contact.name).font(.system(.title2, design: .rounded).weight(.bold))
-                        Text([contact.partyName, sessions.first.map { "zuletzt \($0.startedAt.formatted(date: .abbreviated, time: .omitted))" }]
+                        Text([contact.partyName, sessions.first.map { String(localized: "zuletzt \($0.startedAt.formatted(date: .abbreviated, time: .omitted))") }]
                             .compactMap { $0 }.joined(separator: " · "))
                             .foregroundStyle(.secondary)
                     }
@@ -194,7 +194,7 @@ private struct PersonDetail: View {
                         TextField("z. B. Rolle, Ansprechpartner für …", text: $note).textFieldStyle(.roundedBorder)
                     }
                     if nameChanged && !sessions.isEmpty {
-                        Toggle("Auch in \(sessions.count == 1 ? "dem bisherigen Gespräch" : "den \(sessions.count) bisherigen Gesprächen") umbenennen", isOn: $renameInSessions)
+                        Toggle(sessions.count == 1 ? "Auch im bisherigen Gespräch umbenennen" : "Auch in den \(sessions.count) bisherigen Gesprächen umbenennen", isOn: $renameInSessions)
                             .toggleStyle(.checkbox)
                     }
                     if let duplicate = duplicateTarget {
@@ -221,7 +221,9 @@ private struct PersonDetail: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Stimme").sectionTitle()
                     if let profile {
-                        Label("Bekannt aus \(profile.sessionCount) \(profile.sessionCount == 1 ? "Gespräch" : "Gesprächen"), zuletzt aktualisiert am \(profile.updatedAt.formatted(date: .abbreviated, time: .omitted)).",
+                        Label(profile.sessionCount == 1
+                              ? "Bekannt aus 1 Gespräch, zuletzt aktualisiert am \(profile.updatedAt.formatted(date: .abbreviated, time: .omitted))."
+                              : "Bekannt aus \(profile.sessionCount) Gesprächen, zuletzt aktualisiert am \(profile.updatedAt.formatted(date: .abbreviated, time: .omitted)).",
                               systemImage: "waveform")
                         Text("Cadence erkennt diese Stimme nach dem Gespräch automatisch. Wird sie verwechselt, vergiss sie hier. Bei der nächsten Zuordnung lernt Cadence sie neu.")
                             .font(.caption)
