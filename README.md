@@ -28,7 +28,8 @@ Cadence records your meeting app's audio and your microphone as **two separate t
 |---|---|
 | 🎙️ **Two tracks** | Microphone = you, system audio = everyone else. Your own lines are always attributed correctly. |
 | 🧩 **Any meeting app** | "All apps" works with everything. You can also capture a single app, including helper processes such as the Teams WebView. |
-| 📝 **On-device transcription** | [WhisperKit](https://github.com/argmaxinc/WhisperKit) on the Neural Engine with Large v3 Turbo by default. Runs live during the call in German, English or auto-detect. |
+| 📝 **On-device transcription** | [WhisperKit](https://github.com/argmaxinc/WhisperKit) on the Neural Engine with Large v3 Turbo by default. Runs live during the call in German, English or auto-detect, and transcribes the full recording again after the call for a clean final version. |
+| 💬 **Live text, word by word** | New in 0.2. On macOS 26, Apple's on-device speech recognition shows each word while it is spoken. Whisper writes the final version. |
 | 👥 **Prepare participants** | Add people per party before the call: your company, the customer, partners. Names are suggested from earlier meetings, and "copy participants from…" handles recurring meetings. An internal-meeting template uses a single party. |
 | 🗣️ **Who's talking?** | Click a name, press **⌃⌥1–9** (works while Teams is in front), or type a new name. Every unknown bubble shows the participants as chips, so one click answers "Who was that?" for that turn and everything after it. |
 | ⚡️ **Live voice recognition** | New in 0.2. During the call, [SpeakerKit](https://github.com/argmaxinc/WhisperKit) (pyannote, on-device) separates the voices every few seconds. Known voices get their name right away, and one tag is enough to label a voice for the rest of the call. |
@@ -135,6 +136,7 @@ Everything stays on your Mac: audio, transcripts, summaries, people and voice pr
 ## Roadmap
 
 - [x] English user interface (0.2)
+- [x] Live text word by word with Apple speech recognition (0.2)
 - [x] Live diarization and live voice recognition during the call (0.2)
 - [x] Local summaries and action items with Apple Foundation Models (0.2)
 - [ ] Calibrate the voice-matching threshold on real meetings
