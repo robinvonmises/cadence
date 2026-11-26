@@ -77,6 +77,24 @@ struct SpeakerResolverTests {
         #expect(session.displayName(for: session.segments[1]) == "Sprecher 2")
     }
 
+    @Test func testFinalTranscriptKeepsManualAssignments() {
+        var (session, _, anna, tom) = makeSession()
+        session.segments = [
+            TranscriptSegment(source: .system, start: 0, end: 8, text: "Live-Stück eins", manualPersonID: tom.id),
+            TranscriptSegment(source: .system, start: 8, end: 16, text: "Live-Stück zwei")
+        ]
+        session.speakerTags = [SpeakerTag(time: 0, personID: anna.id)]
+        session.replaceTranscript(with: [
+            TranscriptSegment(source: .system, start: 0.5, end: 7, text: "Ganzer Satz eins."),
+            TranscriptSegment(source: .system, start: 7.5, end: 15, text: "Ganzer Satz zwei.")
+        ])
+        #expect(session.segments.count == 2)
+        #expect(session.segments[0].manualPersonID == tom.id)
+        #expect(session.segments[0].personID == tom.id)
+        #expect(session.segments[1].manualPersonID == nil)
+        #expect(session.segments[1].personID == anna.id)
+    }
+
     @Test func testManualAssignmentWins() {
         var (session, _, anna, tom) = makeSession()
         session.speakerTags = [SpeakerTag(time: 0, personID: anna.id)]

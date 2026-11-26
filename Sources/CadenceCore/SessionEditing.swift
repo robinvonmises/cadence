@@ -123,3 +123,26 @@ public extension Session {
             .map { $0 }
     }
 }
+
+public extension Session {
+    /// Ersetzt das Live-Transkript durch eine sorgfältigere Fassung (nach dem Gespräch aus den
+    /// Audiodateien). Von Hand zugeordnete Personen wandern mit: Ein neuer Abschnitt übernimmt die
+    /// Person, deren manuell zugeordnete alte Abschnitte ihn zum größten Teil überdecken.
+    mutating func replaceTranscript(with newSegments: [TranscriptSegment]) {
+        let manual = segments.filter { $0.manualPersonID != nil }
+        var result = newSegments.sorted { $0.start < $1.start }
+        for index in result.indices {
+            let segment = result[index]
+            var overlapByPerson: [UUID: Double] = [:]
+            for old in manual where old.source == segment.source {
+                let overlap = min(segment.end, old.end) - max(segment.start, old.start)
+                if overlap > 0, let person = old.manualPersonID { overlapByPerson[person, default: 0] += overlap }
+            }
+            if let best = overlapByPerson.max(by: { $0.value < $1.value }), best.value >= segment.duration * 0.5 {
+                result[index].manualPersonID = best.key
+            }
+        }
+        segments = result
+        SpeakerResolver.resolve(&self)
+    }
+}

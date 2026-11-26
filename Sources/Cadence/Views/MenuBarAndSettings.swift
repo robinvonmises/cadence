@@ -64,6 +64,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.globalHotkeys) private var globalHotkeys = true
     @AppStorage(SettingsKey.liveDiarization) private var liveDiarization = true
     @AppStorage(SettingsKey.autoSummary) private var autoSummary = true
+    @AppStorage(SettingsKey.finalPass) private var finalPass = true
     @State private var interfaceLanguage = InterfaceLanguage.current
     @State private var languageChanged = false
 
@@ -132,6 +133,7 @@ struct SettingsView: View {
                 Toggle("Stimmen automatisch trennen (Diarization)", isOn: $runDiarization)
                 Toggle("Stimmen schon während des Gesprächs erkennen", isOn: $liveDiarization)
                     .disabled(!runDiarization)
+                Toggle("Nach dem Gespräch das ganze Transkript sauber neu erstellen", isOn: $finalPass)
                 Toggle("Nach dem Gespräch automatisch zusammenfassen", isOn: $autoSummary)
                 if let reason = Summarizer.unavailableReason {
                     Text(reason).font(.caption).foregroundStyle(.secondary)

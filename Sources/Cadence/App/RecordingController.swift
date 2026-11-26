@@ -414,8 +414,11 @@ final class RecordingController: ObservableObject {
         let systemURL = folder.appendingPathComponent("system.m4a")
         let micURL = folder.appendingPathComponent("mikrofon.m4a")
 
-        if !liveTranscriptionWorked {
-            await transcribeFromFiles(&current, folder: folder) { [weak self] status in
+        // Live wird in kurzen Stücken transkribiert, damit Text schnell erscheint – dabei werden Sätze
+        // zerschnitten. Nach dem Gespräch daher einmal sauber über die ganzen Aufnahmen (an Pausen
+        // geschnitten, mit vollem Kontext). Deine Zuordnungen bleiben erhalten.
+        if !liveTranscriptionWorked || UserDefaults.standard.bool(forKey: SettingsKey.finalPass) {
+            await transcribeFromFiles(&current, folder: folder, keepAssignments: liveTranscriptionWorked) { [weak self] status in
                 self?.phase = .finishing(status)
             }
         }
@@ -502,7 +505,8 @@ final class RecordingController: ObservableObject {
         reprocessing = nil
     }
 
-    private func transcribeFromFiles(_ session: inout Session, folder: URL, status: (String) -> Void) async {
+    private func transcribeFromFiles(_ session: inout Session, folder: URL, keepAssignments: Bool = false,
+                                     status: (String) -> Void) async {
         status(String(localized: "Sprachmodell wird geladen …"))
         guard await models.ensureReady() else {
             errorMessage = String(localized: "Das Sprachmodell ist nicht verfügbar. Die Aufnahme ist gespeichert – du kannst sie später über „Transkribieren“ nachholen.")
@@ -526,8 +530,12 @@ final class RecordingController: ObservableObject {
             }
         }
         guard !segments.isEmpty else { return }
-        session.segments = segments.sorted { $0.start < $1.start }
-        SpeakerResolver.resolve(&session)
+        if keepAssignments {
+            session.replaceTranscript(with: segments)
+        } else {
+            session.segments = segments.sorted { $0.start < $1.start }
+            SpeakerResolver.resolve(&session)
+        }
     }
 
     private func diarize(_ session: inout Session, systemURL: URL, status: (String) -> Void) async {

@@ -18,6 +18,8 @@ enum SettingsKey {
     static let liveDiarization = "liveDiarization"
     static let interfaceLanguage = "interfaceLanguage"
     static let recordMicrophone = "recordMicrophone"
+    /// Nach dem Gespräch die ganzen Aufnahmen noch einmal sorgfältig transkribieren.
+    static let finalPass = "finalPass"
     /// UID des Eingangsgeräts; leer = Systemstandard.
     static let microphoneDevice = "microphoneDevice"
 }
@@ -39,6 +41,7 @@ enum Defaults {
             SettingsKey.model: WhisperModelOption.largeTurbo.rawValue,
             SettingsKey.language: "de",
             SettingsKey.recordMicrophone: true,
+            SettingsKey.finalPass: true,
             SettingsKey.microphoneDevice: "",
             SettingsKey.storagePath: "",
             SettingsKey.saveAudio: true,
