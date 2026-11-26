@@ -71,7 +71,8 @@ final class RecordingController: ObservableObject {
         lastRecognizedNames = []
 
         let defaults = UserDefaults.standard
-        guard await MicrophoneCapture.requestPermission() else {
+        let recordMicrophone = defaults.bool(forKey: SettingsKey.recordMicrophone)
+        if recordMicrophone, !(await MicrophoneCapture.requestPermission()) {
             fail(String(localized: "Kein Zugriff auf das Mikrofon. Bitte in Systemeinstellungen → Datenschutz & Sicherheit → Mikrofon erlauben."))
             return
         }
@@ -81,7 +82,7 @@ final class RecordingController: ObservableObject {
         let language = LanguageOption(rawValue: defaults.string(forKey: SettingsKey.language) ?? "de") ?? .german
         newSession.language = language.whisperCode
         newSession.consentConfirmed = consentConfirmed
-        newSession.audio = AudioFiles(system: "system.m4a", microphone: "mikrofon.m4a")
+        newSession.audio = AudioFiles(system: "system.m4a", microphone: recordMicrophone ? "mikrofon.m4a" : nil)
         if consentConfirmed {
             newSession.addMarker(.consent, text: String(localized: "Einwilligung zur Aufzeichnung bestätigt"), at: 0)
         }
@@ -96,7 +97,9 @@ final class RecordingController: ObservableObject {
         }
         do {
             systemTrack = try AudioTrackRecorder(source: .system, fileURL: folder.appendingPathComponent("system.m4a"))
-            micTrack = try AudioTrackRecorder(source: .microphone, fileURL: folder.appendingPathComponent("mikrofon.m4a"))
+            micTrack = recordMicrophone
+                ? try AudioTrackRecorder(source: .microphone, fileURL: folder.appendingPathComponent("mikrofon.m4a"))
+                : nil
         } catch {
             store.delete(newSession.id)
             fail(String(localized: "Audiodateien konnten nicht angelegt werden: \(error.localizedDescription)"))
@@ -136,15 +139,17 @@ final class RecordingController: ObservableObject {
             fail(String(localized: "Systemaudio konnte nicht aufgenommen werden: \(error.localizedDescription)\n\nPrüfe Systemeinstellungen → Datenschutz & Sicherheit → Bildschirm- & Systemaudioaufnahme."))
             return
         }
-        do {
-            let voiceProcessing = defaults.bool(forKey: SettingsKey.voiceProcessing)
-            let micRecorder = micTrack
-            try microphone.start(voiceProcessing: voiceProcessing) { buffer in micRecorder?.append(buffer) }
-        } catch {
-            systemTap.stop()
-            store.delete(newSession.id)
-            fail(String(localized: "Mikrofon konnte nicht gestartet werden: \(error.localizedDescription)"))
-            return
+        if let micRecorder = micTrack {
+            do {
+                let voiceProcessing = defaults.bool(forKey: SettingsKey.voiceProcessing)
+                let deviceUID = defaults.string(forKey: SettingsKey.microphoneDevice).flatMap { $0.isEmpty ? nil : $0 }
+                try microphone.start(voiceProcessing: voiceProcessing, deviceUID: deviceUID) { buffer in micRecorder.append(buffer) }
+            } catch {
+                systemTap.stop()
+                store.delete(newSession.id)
+                fail(String(localized: "Mikrofon konnte nicht gestartet werden: \(error.localizedDescription)"))
+                return
+            }
         }
 
         startDate = Date()
@@ -400,7 +405,7 @@ final class RecordingController: ObservableObject {
             phase = .finishing(String(localized: "Audio wird zusammengeführt …"))
             let combinedURL = folder.appendingPathComponent("gesamt.m4a")
             do {
-                try await AudioMixdown.combine([systemURL, micURL], into: combinedURL)
+                try await AudioMixdown.combine([systemURL, micURL].filter { FileManager.default.fileExists(atPath: $0.path) }, into: combinedURL)
                 current.audio.combined = "gesamt.m4a"
             } catch {
                 // Einzelspuren bleiben in jedem Fall erhalten.

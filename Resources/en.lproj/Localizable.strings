@@ -335,3 +335,11 @@
 "Gesprächsverlauf" = "Conversation";
 "bestätigt" = "confirmed";
 "nicht dokumentiert" = "not documented";
+"Mikrofon" = "Microphone";
+"Mein Mikrofon aufnehmen" = "Record my microphone";
+"Eingang" = "Input";
+"Systemstandard" = "System default";
+"Nicht verbunden" = "Not connected";
+"Deine Stimme wird als eigene Spur aufgenommen und dir zugeordnet." = "Your voice is recorded as a separate track and attributed to you.";
+"Nur der Ton der App wird aufgenommen, z. B. für Podcasts oder Videos." = "Only the app's audio is recorded, e.g. for podcasts or videos.";
+"Mikrofon auswählen" = "Select microphone";

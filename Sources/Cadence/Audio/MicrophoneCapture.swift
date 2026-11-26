@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import Foundation
 
 /// Nimmt das eigene Mikrofon als separate Spur auf.
@@ -18,9 +19,15 @@ final class MicrophoneCapture {
 
     /// - Parameter voiceProcessing: Apples Echounterdrückung. Hilfreich ohne Kopfhörer, damit die
     ///   Stimmen der Gegenseite aus den Lautsprechern nicht zusätzlich als „du“ transkribiert werden.
-    func start(voiceProcessing: Bool, handler: @escaping BufferHandler) throws {
+    /// - Parameter deviceUID: bestimmtes Eingangsgerät; `nil` = Systemstandard.
+    func start(voiceProcessing: Bool, deviceUID: String? = nil, handler: @escaping BufferHandler) throws {
         guard !isRunning else { return }
         let input = engine.inputNode
+        if let deviceUID, var deviceID = InputDevices.device(uid: deviceUID), let unit = input.audioUnit {
+            try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                           &deviceID, UInt32(MemoryLayout<AudioDeviceID>.size)),
+                      String(localized: "Mikrofon auswählen"))
+        }
         if voiceProcessing {
             try input.setVoiceProcessingEnabled(true)
             // Andere Apps (Teams!) nicht leiser drehen.

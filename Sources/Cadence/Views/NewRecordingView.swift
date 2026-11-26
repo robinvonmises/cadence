@@ -9,6 +9,9 @@ struct NewRecordingView: View {
     @AppStorage(SettingsKey.consentMessage) private var consentMessage = Defaults.consentMessage
     @AppStorage(SettingsKey.language) private var language = LanguageOption.german.rawValue
     @AppStorage(SettingsKey.ownerName) private var ownerName = Defaults.ownerName
+    @AppStorage(SettingsKey.recordMicrophone) private var recordMicrophone = true
+    @AppStorage(SettingsKey.microphoneDevice) private var microphoneDevice = ""
+    @State private var inputDevices: [InputDevice] = []
 
     @State private var apps: [MeetingApp] = []
     @State private var target: SystemAudioTarget = .allSystemAudio
@@ -44,12 +47,13 @@ struct NewRecordingView: View {
         VStack(spacing: 18) {
             hero
             ModelStatusBanner()
-            if micStatus != .authorized { permissionBanner }
+            if recordMicrophone, micStatus != .authorized { permissionBanner }
 
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 20) {
                     titleField
                     sourcePicker
+                    microphonePicker
                     languagePicker
                     Spacer(minLength: 0)
                     recordButton
@@ -170,6 +174,36 @@ struct NewRecordingView: View {
     private func otherAppSelectedName(in list: [MeetingApp]) -> String? {
         if case .app(let id, let name) = target, list.contains(where: { $0.bundleID == id }) { return name }
         return nil
+    }
+
+    /// Eigenes Mikrofon an/aus und Eingangsgerät – aus z. B. für Podcasts oder Videos.
+    private var microphonePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Mikrofon").sectionTitle()
+            HStack(spacing: 12) {
+                Toggle("Mein Mikrofon aufnehmen", isOn: $recordMicrophone)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                Spacer(minLength: 8)
+                if recordMicrophone {
+                    Picker("Eingang", selection: $microphoneDevice) {
+                        Text("Systemstandard").tag("")
+                        ForEach(inputDevices) { Text($0.name).tag($0.uid) }
+                        if !microphoneDevice.isEmpty, !inputDevices.contains(where: { $0.uid == microphoneDevice }) {
+                            Text("Nicht verbunden").tag(microphoneDevice)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+            Text(recordMicrophone
+                 ? "Deine Stimme wird als eigene Spur aufgenommen und dir zugeordnet."
+                 : "Nur der Ton der App wird aufgenommen, z. B. für Podcasts oder Videos.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .onAppear { inputDevices = InputDevices.all() }
     }
 
     private var languagePicker: some View {
