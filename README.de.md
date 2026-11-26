@@ -12,7 +12,6 @@ Cadence ist eine native macOS-App, die den Ton deiner Meeting-App (Teams, Zoom, 
 | 🎙️ **Zwei Spuren** | Mikrofon = du, Systemaudio = die Gegenseite. Deine Beiträge sind dadurch automatisch richtig zugeordnet. |
 | 🧩 **Jede Meeting-App** | „Gesamter Systemton“ funktioniert mit allem; optional nur eine bestimmte App (inkl. Hilfsprozesse wie Teams-WebView). |
 | 📝 **Lokale Transkription** | [WhisperKit](https://github.com/argmaxinc/WhisperKit) auf der Neural Engine, Deutsch/Englisch/automatisch. Live während des Gesprächs, danach noch einmal sauber über die ganze Aufnahme. |
-| 💬 **Live-Text Wort für Wort** | Neu in 0.2: Ab macOS 26 zeigt Apples Spracherkennung (lokal) jedes Wort schon beim Sprechen. Die Endfassung schreibt Whisper. |
 | 👥 **Vorbereiten** | Teilnehmer je Partei schon vor dem Start anlegen (mit Vorschlägen aus früheren Gesprächen oder „Teilnehmer übernehmen von …“). Vorlage „Internes Meeting“ mit nur einer Partei. |
 | 🗣️ **Wer spricht?** | Live per Klick, per **⌃⌥1–9** (funktioniert auch, wenn Teams vorne ist) oder Namen eintippen + ⏎. Unter jedem unbekannten Beitrag stehen die Teilnehmer als Knöpfe: ein Klick, und der Beitrag (und alles Folgende) gehört dieser Person. |
 | ⚡️ **Live-Stimmerkennung** | Neu in 0.2: Schon während des Gesprächs trennt SpeakerKit alle paar Sekunden die Stimmen. Bekannte Stimmen bekommen sofort ihren Namen, und eine Markierung reicht, damit eine Stimme für den Rest des Gesprächs zugeordnet bleibt. |
@@ -119,7 +118,6 @@ Ablauf: **Tap/Mikrofon → 48 kHz mono → M4A** und parallel **→ 16 kHz → A
 ## Roadmap / Ideen
 
 - [x] **Sprecherprofile:** Stimmen über Gespräche hinweg wiedererkennen (nach dem Gespräch)
-- [x] **Live-Text Wort für Wort** mit Apples Spracherkennung (0.2)
 - [x] **Live-Diarization** und Live-Stimmerkennung während des Gesprächs (0.2)
 - [ ] Schwellwert der Stimmerkennung an echten Gesprächen kalibrieren (derzeit vorsichtig: Kosinus ≥ 0,62)
 - [x] **Zusammenfassung & Aufgaben** automatisch und lokal mit Apple Foundation Models (0.2)
