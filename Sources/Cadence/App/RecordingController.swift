@@ -235,7 +235,7 @@ final class RecordingController: ObservableObject {
 
     // MARK: - Live-Stimmerkennung
 
-    /// Sammelt Sprache der Gegenseite und trennt sie alle ~20 Sekunden in Stimmen.
+    /// Sammelt Sprache der Gegenseite und trennt sie alle ~12 Sekunden in Stimmen.
     /// Die Fenster werden über Stimm-Fingerabdrücke zu dauerhaften Sprechern verbunden.
     private func runLiveDiarization(stream: AsyncStream<SpeechChunk>) async {
         var buffer: [SpeechChunk] = []
@@ -243,7 +243,7 @@ final class RecordingController: ObservableObject {
         for await chunk in stream {
             buffer.append(chunk)
             bufferedSeconds += chunk.duration
-            guard bufferedSeconds >= 20 else { continue }
+            guard bufferedSeconds >= 12 else { continue }
             await diarizeLiveWindow(buffer)
             // Etwas Überlappung behalten, damit Sprecherwechsel an der Grenze nicht verloren gehen.
             if let last = buffer.last, last.duration < 8 {
