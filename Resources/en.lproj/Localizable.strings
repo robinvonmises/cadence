@@ -343,3 +343,8 @@
 "Deine Stimme wird als eigene Spur aufgenommen und dir zugeordnet." = "Your voice is recorded as a separate track and attributed to you.";
 "Nur der Ton der App wird aufgenommen, z. B. für Podcasts oder Videos." = "Only the app's audio is recorded, e.g. for podcasts or videos.";
 "Mikrofon auswählen" = "Select microphone";
+"Es kommt kein Ton an" = "No audio is coming in";
+"Der Systemton reißt immer wieder ab. Wähle als Ausgabe die Mac-Lautsprecher oder Kopfhörer statt eines Bluetooth-Lautsprechers." = "System audio keeps dropping out. Choose your Mac's speakers or headphones as output instead of a Bluetooth speaker.";
+"Systemton konnte nicht neu gestartet werden: %@" = "System audio could not be restarted: %@";
+"Dein Mikrofon liefert keinen Ton. Das passiert oft mit Echounterdrückung und Bluetooth-Geräten. Schalte sie in den Einstellungen aus oder wähle ein anderes Mikrofon." = "Your microphone isn't delivering any sound. This often happens with echo cancellation and Bluetooth devices. Turn it off in Settings or choose a different microphone.";
+"Dein Mikrofon liefert keinen Ton. Prüfe, ob das richtige Mikrofon ausgewählt und nicht stummgeschaltet ist." = "Your microphone isn't delivering any sound. Check that the right microphone is selected and not muted.";

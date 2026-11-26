@@ -22,6 +22,7 @@ Cadence ist eine native macOS-App, die den Ton deiner Meeting-App (Teams, Zoom, 
 | 📋 **Kopieren** | Gespräch in die Zwischenablage: mit/ohne Sprecher, mit/ohne Zeitstempel (⇧⌘C), dazu Protokoll und Markdown. |
 | 🧠 **Sprechertrennung** | Nach dem Gespräch trennt [SpeakerKit](https://github.com/argmaxinc/WhisperKit) (pyannote, lokal) die Stimmen. Jede Stimme bekommt automatisch die Person, die du live am häufigsten markiert hast – ein, zwei Markierungen pro Person reichen. |
 | 🏢 **Parteien** | „Wir“, „Kunde“ und beliebig weitere (Partner, Dienstleister …). Personen lassen sich verschieben und umbenennen. |
+| 🎚️ **Mikrofon** | Eingangsgerät wählen oder dein Mikrofon ganz abschalten, z. B. für Podcasts oder Videos. Bleibt eine Spur stumm, warnt Cadence. |
 | ⭐️ **Marker & Notizen** | Wichtig / Aufgabe / Entscheidung / Notiz mit Zeitstempel, live per Hotkey oder aus jedem Satz heraus. |
 | 🛡️ **Einwilligung** | Erinnerung vor jeder Aufnahme mit kopierbarem Hinweistext; die Bestätigung landet im Protokoll. |
 | 💾 **Speichern & Export** | Pro Gespräch ein Ordner mit `session.json`, `transkript.md`, `protokoll.md` und Audio (`mikrofon.m4a`, `system.m4a`, `gesamt.m4a`). Export als Markdown, Protokoll, JSON, SRT, Text. |

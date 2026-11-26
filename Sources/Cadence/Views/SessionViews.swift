@@ -22,6 +22,11 @@ struct LiveSessionView: View {
             ModelStatusBanner(duringRecording: true)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
+            if let warning = recorder.audioWarning {
+                Banner(kind: .warning, title: String(localized: "Es kommt kein Ton an"), message: warning)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 8)
+            }
             Divider()
             TranscriptView(session: sessionBinding, isLive: true, onAssignTurn: { turn, personID, isLatest in
                 recorder.assignTurn(segmentIDs: turn.segments.map(\.id), start: turn.start, to: personID, isLatest: isLatest)

@@ -36,6 +36,7 @@ Cadence records your meeting app's audio and your microphone as **two separate t
 | 🔊 **Voice profiles** | Voices you've assigned are stored locally as voice fingerprints. In later meetings, known voices are filled in automatically. |
 | ✨ **Summary & action items** | New in 0.2. After the call, Apple Intelligence writes a short summary with key points, decisions and action items, fully on-device. Tick off tasks in the app, copy the summary, or find it in the minutes. Requires macOS 26 with Apple Intelligence. |
 | 📇 **People** | All participants in one place: rename, set party or company, add a note, merge duplicates, forget a voice or delete a person. |
+| 🎚️ **Microphone options** | Pick the input device, or switch your microphone off to transcribe a podcast or video. Cadence warns you if a track stays silent. |
 | ⭐️ **Markers & notes** | Highlight, to-do, decision or free note, each with a timestamp. Add them live by hotkey or from any sentence afterwards. |
 | 📋 **Copy & export** | Copy the conversation with or without speakers and with or without timestamps (⇧⌘C). Export as Markdown transcript, meeting minutes, JSON, SRT or plain text. |
 | 🛡️ **Consent** | A reminder before every recording, with a message you can paste into the meeting chat. The confirmation is logged in the minutes. |

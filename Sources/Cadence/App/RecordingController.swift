@@ -41,6 +41,12 @@ final class RecordingController: ObservableObject {
     private var transcriptionTask: Task<Void, Never>?
     private var clockTimer: Timer?
     private var autosaveTimer: Timer?
+    private var watchdogTimer: Timer?
+    private var systemTarget: SystemAudioTarget = .allSystemAudio
+    private var lastMicSound = Date()
+    private var systemRestarts = 0
+    /// Hinweis während der Aufnahme, wenn eine Spur nichts liefert.
+    @Published private(set) var audioWarning: String?
     private var startDate = Date()
     private var liveTranscriptionWorked = true
 
@@ -126,14 +132,19 @@ final class RecordingController: ObservableObject {
             track.onLevel = { [weak self] level in
                 Task { @MainActor in
                     guard let self else { return }
-                    if source == .system { self.systemLevel = level } else { self.micLevel = level }
+                    if source == .system { self.systemLevel = level } else {
+                        self.micLevel = level
+                        if level > 0.0001 { self.lastMicSound = Date() }
+                    }
                 }
             }
         }
 
+        systemTarget = target
+        systemRestarts = 0
+        audioWarning = nil
         do {
-            let systemRecorder = systemTrack
-            try systemTap.start(target: target) { buffer in systemRecorder?.append(buffer) }
+            try startSystemTap()
         } catch {
             store.delete(newSession.id)
             fail(String(localized: "Systemaudio konnte nicht aufgenommen werden: \(error.localizedDescription)\n\nPrüfe Systemeinstellungen → Datenschutz & Sicherheit → Bildschirm- & Systemaudioaufnahme."))
@@ -536,7 +547,44 @@ final class RecordingController: ObservableObject {
         phase = .idle
     }
 
+    private func startSystemTap() throws {
+        let systemRecorder = systemTrack
+        try systemTap.start(target: systemTarget) { buffer in systemRecorder?.append(buffer) }
+    }
+
+    /// Prüft alle paar Sekunden, ob beide Spuren noch Ton liefern.
+    private func checkAudio() {
+        guard isRecording else { return }
+        // Systemton: Der Tap liefert auch bei Stille laufend Daten. Bleiben sie aus, hängt das
+        // Gerät (z. B. Bluetooth-Moduswechsel) – dann Tap und Aggregate neu aufbauen.
+        if systemTap.secondsSinceLastBuffer > 4 {
+            systemTap.stop()
+            systemRestarts += 1
+            do {
+                try startSystemTap()
+                if systemRestarts >= 3 {
+                    audioWarning = String(localized: "Der Systemton reißt immer wieder ab. Wähle als Ausgabe die Mac-Lautsprecher oder Kopfhörer statt eines Bluetooth-Lautsprechers.")
+                }
+            } catch {
+                audioWarning = String(localized: "Systemton konnte nicht neu gestartet werden: \(error.localizedDescription)")
+            }
+        }
+        // Mikrofon: Ein echtes Mikro rauscht immer ein wenig. Absolute Stille heißt, es kommt nichts an.
+        if micTrack != nil, Date().timeIntervalSince(lastMicSound) > 10 {
+            let echo = UserDefaults.standard.bool(forKey: SettingsKey.voiceProcessing)
+            audioWarning = echo
+                ? String(localized: "Dein Mikrofon liefert keinen Ton. Das passiert oft mit Echounterdrückung und Bluetooth-Geräten. Schalte sie in den Einstellungen aus oder wähle ein anderes Mikrofon.")
+                : String(localized: "Dein Mikrofon liefert keinen Ton. Prüfe, ob das richtige Mikrofon ausgewählt und nicht stummgeschaltet ist.")
+        } else if audioWarning != nil, micTrack == nil || Date().timeIntervalSince(lastMicSound) < 2, systemRestarts < 3 {
+            audioWarning = nil
+        }
+    }
+
     private func startTimers() {
+        lastMicSound = Date()
+        watchdogTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkAudio() }
+        }
         clockTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.isRecording else { return }
@@ -555,6 +603,9 @@ final class RecordingController: ObservableObject {
     private func stopTimers() {
         clockTimer?.invalidate()
         autosaveTimer?.invalidate()
+        watchdogTimer?.invalidate()
+        watchdogTimer = nil
+        audioWarning = nil
         clockTimer = nil
         autosaveTimer = nil
     }
