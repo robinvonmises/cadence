@@ -122,11 +122,11 @@ public enum MarkerKind: String, Codable, CaseIterable, Sendable {
 
     public var label: String {
         switch self {
-        case .note: return "Notiz"
-        case .highlight: return "Wichtig"
-        case .todo: return "Aufgabe"
-        case .decision: return "Entscheidung"
-        case .consent: return "Einwilligung"
+        case .note: return String(localized: "Notiz")
+        case .highlight: return String(localized: "Wichtig")
+        case .todo: return String(localized: "Aufgabe")
+        case .decision: return String(localized: "Entscheidung")
+        case .consent: return String(localized: "Einwilligung")
         }
     }
 
@@ -152,6 +152,41 @@ public struct Marker: Identifiable, Codable, Hashable, Sendable {
         self.time = time
         self.kind = kind
         self.text = text
+    }
+}
+
+// MARK: - Zusammenfassung
+
+/// Eine Aufgabe aus dem Gespräch (automatisch erkannt oder von Hand ergänzt).
+public struct ActionItem: Identifiable, Codable, Hashable, Sendable {
+    public var id: UUID
+    public var text: String
+    /// Wer sich darum kümmert, falls im Gespräch genannt.
+    public var owner: String?
+    public var done: Bool
+
+    public init(id: UUID = UUID(), text: String, owner: String? = nil, done: Bool = false) {
+        self.id = id
+        self.text = text
+        self.owner = owner
+        self.done = done
+    }
+}
+
+/// Lokal erzeugte Zusammenfassung eines Gesprächs.
+public struct MeetingSummary: Codable, Hashable, Sendable {
+    public var overview: String
+    public var keyPoints: [String]
+    public var decisions: [String]
+    public var actionItems: [ActionItem]
+    public var createdAt: Date
+
+    public init(overview: String, keyPoints: [String] = [], decisions: [String] = [], actionItems: [ActionItem] = [], createdAt: Date = Date()) {
+        self.overview = overview
+        self.keyPoints = keyPoints
+        self.decisions = decisions
+        self.actionItems = actionItems
+        self.createdAt = createdAt
     }
 }
 
@@ -201,6 +236,8 @@ public struct Session: Identifiable, Codable, Hashable, Sendable {
     public var clusterEmbeddings: [Int: [Float]]?
     /// Cluster, die automatisch über ein Stimmprofil erkannt wurden (Cluster → Profil-ID).
     public var recognizedClusters: [Int: UUID]?
+    /// Zusammenfassung, Entscheidungen und Aufgaben (optional, ältere Sessions haben keine).
+    public var summary: MeetingSummary?
 
     public init(
         id: UUID = UUID(),
@@ -243,8 +280,8 @@ public struct Session: Identifiable, Codable, Hashable, Sendable {
 
     public static var defaultParties: [Party] {
         [
-            Party(name: "Wir", color: .blue),
-            Party(name: "Kunde", color: .orange)
+            Party(name: String(localized: "Wir"), color: .blue),
+            Party(name: String(localized: "Kunde"), color: .orange)
         ]
     }
 
@@ -304,10 +341,10 @@ public struct Session: Identifiable, Codable, Hashable, Sendable {
     /// Anzeigename für einen Abschnitt, mit sinnvollen Rückfallebenen.
     public func displayName(for segment: TranscriptSegment) -> String {
         if let person = person(segment.personID) { return person.name }
-        if let cluster = segment.clusterID { return "Sprecher \(cluster + 1)" }
+        if let cluster = segment.clusterID { return String(localized: "Sprecher \(cluster + 1)") }
         switch segment.source {
-        case .microphone: return microphoneOwner?.name ?? "Ich"
-        case .system: return "Unbekannt"
+        case .microphone: return microphoneOwner?.name ?? String(localized: "Ich")
+        case .system: return String(localized: "Unbekannt")
         }
     }
 

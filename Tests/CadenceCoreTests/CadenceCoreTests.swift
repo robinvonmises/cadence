@@ -56,6 +56,59 @@ struct SpeakerResolverTests {
         #expect(session.segments[2].origin == .cluster)
     }
 
+    @Test func testOneLiveTagDoesNotNameTwoVoices() {
+        var (session, _, anna, _) = makeSession()
+        // Nur einmal am Anfang „Anna spricht“ gedrückt – danach antwortet jemand anderes.
+        session.speakerTags = [SpeakerTag(time: 0, personID: anna.id)]
+        session.segments = [
+            TranscriptSegment(source: .system, start: 0, end: 10, text: "a1"),
+            TranscriptSegment(source: .system, start: 10, end: 14, text: "b1"),
+            TranscriptSegment(source: .system, start: 14, end: 24, text: "a2")
+        ]
+        let turns = [
+            DiarizedTurn(clusterID: 0, start: 0, end: 10),
+            DiarizedTurn(clusterID: 1, start: 10, end: 14),
+            DiarizedTurn(clusterID: 0, start: 14, end: 24)
+        ]
+        SpeakerResolver.finalize(&session, turns: turns)
+        #expect(session.clusterAssignments[0] == anna.id)
+        #expect(session.clusterAssignments[1] == nil)
+        #expect(session.segments.map(\.personID) == [anna.id, nil, anna.id])
+        #expect(session.displayName(for: session.segments[1]) == "Sprecher 2")
+    }
+
+    @Test func testFinalTranscriptKeepsManualAssignments() {
+        var (session, _, anna, tom) = makeSession()
+        session.segments = [
+            TranscriptSegment(source: .system, start: 0, end: 8, text: "Live-Stück eins", manualPersonID: tom.id),
+            TranscriptSegment(source: .system, start: 8, end: 16, text: "Live-Stück zwei")
+        ]
+        session.speakerTags = [SpeakerTag(time: 0, personID: anna.id)]
+        session.replaceTranscript(with: [
+            TranscriptSegment(source: .system, start: 0.5, end: 7, text: "Ganzer Satz eins."),
+            TranscriptSegment(source: .system, start: 7.5, end: 15, text: "Ganzer Satz zwei.")
+        ])
+        #expect(session.segments.count == 2)
+        #expect(session.segments[0].manualPersonID == tom.id)
+        #expect(session.segments[0].personID == tom.id)
+        #expect(session.segments[1].manualPersonID == nil)
+        #expect(session.segments[1].personID == anna.id)
+    }
+
+    @Test func testSentencesAreJoinedAcrossChunks() {
+        let merged = SentenceMerger.merge([
+            TranscriptSegment(source: .system, start: 0, end: 7.8, text: "Wir sollten das Budget"),
+            TranscriptSegment(source: .system, start: 8, end: 10, text: "nächste Woche freigeben."),
+            TranscriptSegment(source: .system, start: 10.2, end: 12, text: "Einverstanden?"),
+            TranscriptSegment(source: .microphone, start: 9, end: 11, text: "Ja, klingt gut"),
+            TranscriptSegment(source: .system, start: 20, end: 22, text: "Nach langer Pause")
+        ])
+        let system = merged.filter { $0.source == .system }.map(\.text)
+        #expect(system == ["Wir sollten das Budget nächste Woche freigeben.", "Einverstanden?", "Nach langer Pause"])
+        #expect(merged.filter { $0.source == .microphone }.count == 1)
+        #expect(merged.map(\.start) == merged.map(\.start).sorted())
+    }
+
     @Test func testManualAssignmentWins() {
         var (session, _, anna, tom) = makeSession()
         session.speakerTags = [SpeakerTag(time: 0, personID: anna.id)]
@@ -255,5 +308,48 @@ struct VoiceProfileTests {
         let names = next.applyRecognizedVoices([0: profiles[0].id], profiles: profiles)
         #expect(names.isEmpty)
         #expect(next.clusterAssignments[0] == lisa.id)
+    }
+}
+
+struct SummaryTests {
+    @Test func testTranscriptChunksRespectLimitAndKeepTurns() {
+        var session = Session.new(title: "Lang", ownerName: "Wayne")
+        let text = String(repeating: "Wort ", count: 20)
+        var segments: [TranscriptSegment] = []
+        for i in 0..<40 {
+            let source: AudioSource = i.isMultiple(of: 2) ? .microphone : .system
+            let start = Double(i) * 10
+            segments.append(TranscriptSegment(source: source, start: start, end: start + 5, text: text))
+        }
+        session.segments = segments
+        SpeakerResolver.resolve(&session)
+        let chunks = SessionExporter(session: session).transcriptChunks(maxCharacters: 400)
+        #expect(chunks.count > 1)
+        #expect(chunks.allSatisfy { $0.count <= 400 })
+        #expect(chunks.allSatisfy { $0.hasPrefix("[") })
+    }
+
+    @Test func testSummaryAppearsInProtocol() {
+        var session = Session.new(title: "Kickoff", ownerName: "Wayne")
+        session.summary = MeetingSummary(overview: "Projekt startet im Januar.", keyPoints: ["Budget steht"],
+                                         decisions: ["Start am 15.1."], actionItems: [ActionItem(text: "Angebot schicken", owner: "Wayne")])
+        let proto = SessionExporter(session: session).protocolMarkdown()
+        #expect(proto.contains("## Zusammenfassung\n\nProjekt startet im Januar."))
+        #expect(proto.contains("- [ ] Angebot schicken (Wayne)"))
+        #expect(SessionExporter(session: session).summaryText()?.contains("• Start am 15.1.") == true)
+    }
+}
+
+struct LiveSpeakerRegistryTests {
+    @Test func testKeepsSpeakersStableAcrossWindows() {
+        var registry = LiveSpeakerRegistry()
+        let anna: [Float] = [1, 0, 0.1], tom: [Float] = [0, 1, 0.1]
+        let first = registry.register([0: anna, 1: tom], speech: [0: 5, 1: 5])
+        // Nächstes Fenster: lokale Nummern vertauscht, Stimmen leicht anders, dazu jemand Neues.
+        let second = registry.register([0: [0.05, 0.95, 0.1], 1: [0.95, 0.05, 0.1], 2: [0, 0, 1]], speech: [0: 4, 1: 4, 2: 3])
+        #expect(second[0] == first[1])
+        #expect(second[1] == first[0])
+        #expect(second[2] != first[0] && second[2] != first[1])
+        #expect(registry.centroids.count == 3)
     }
 }

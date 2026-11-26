@@ -9,6 +9,9 @@ struct NewRecordingView: View {
     @AppStorage(SettingsKey.consentMessage) private var consentMessage = Defaults.consentMessage
     @AppStorage(SettingsKey.language) private var language = LanguageOption.german.rawValue
     @AppStorage(SettingsKey.ownerName) private var ownerName = Defaults.ownerName
+    @AppStorage(SettingsKey.recordMicrophone) private var recordMicrophone = true
+    @AppStorage(SettingsKey.microphoneDevice) private var microphoneDevice = ""
+    @State private var inputDevices: [InputDevice] = []
 
     @State private var apps: [MeetingApp] = []
     @State private var target: SystemAudioTarget = .allSystemAudio
@@ -44,12 +47,13 @@ struct NewRecordingView: View {
         VStack(spacing: 18) {
             hero
             ModelStatusBanner()
-            if micStatus != .authorized { permissionBanner }
+            if recordMicrophone, micStatus != .authorized { permissionBanner }
 
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 20) {
                     titleField
                     sourcePicker
+                    microphonePicker
                     languagePicker
                     Spacer(minLength: 0)
                     recordButton
@@ -133,7 +137,7 @@ struct NewRecordingView: View {
                 .help("Liste der laufenden Apps aktualisieren")
             }
             FlowLayout(spacing: 8) {
-                SourceChip(title: "Alle Apps", systemImage: "square.stack.3d.up.fill", icon: nil,
+                SourceChip(title: String(localized: "Alle Apps"), systemImage: "square.stack.3d.up.fill", icon: nil,
                            isSelected: target == .allSystemAudio) {
                     target = .allSystemAudio
                 }
@@ -170,6 +174,36 @@ struct NewRecordingView: View {
     private func otherAppSelectedName(in list: [MeetingApp]) -> String? {
         if case .app(let id, let name) = target, list.contains(where: { $0.bundleID == id }) { return name }
         return nil
+    }
+
+    /// Eigenes Mikrofon an/aus und Eingangsgerät – aus z. B. für Podcasts oder Videos.
+    private var microphonePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Mikrofon").sectionTitle()
+            HStack(spacing: 12) {
+                Toggle("Mein Mikrofon aufnehmen", isOn: $recordMicrophone)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                Spacer(minLength: 8)
+                if recordMicrophone {
+                    Picker("Eingang", selection: $microphoneDevice) {
+                        Text("Systemstandard").tag("")
+                        ForEach(inputDevices) { Text($0.name).tag($0.uid) }
+                        if !microphoneDevice.isEmpty, !inputDevices.contains(where: { $0.uid == microphoneDevice }) {
+                            Text("Nicht verbunden").tag(microphoneDevice)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+            Text(recordMicrophone
+                 ? "Deine Stimme wird als eigene Spur aufgenommen und dir zugeordnet."
+                 : "Dein Mikrofon startet stumm, z. B. für Podcasts oder Videos. Im Gespräch schaltest du es mit einem Klick ein.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .onAppear { inputDevices = InputDevices.all() }
     }
 
     private var languagePicker: some View {
@@ -232,8 +266,8 @@ struct NewRecordingView: View {
     }
 
     private var permissionBanner: some View {
-        Banner(kind: .warning, title: "Cadence braucht Zugriff auf dein Mikrofon",
-               message: "Damit deine eigenen Beiträge im Transkript landen.") {
+        Banner(kind: .warning, title: String(localized: "Cadence braucht Zugriff auf dein Mikrofon"),
+               message: String(localized: "Damit deine eigenen Beiträge im Transkript landen.")) {
             Button("Freigeben") {
                 Task {
                     _ = await MicrophoneCapture.requestPermission()
@@ -407,7 +441,7 @@ private struct PartySetupCard: View {
 
             FlowLayout(spacing: 6) {
                 if isOwnersParty {
-                    NameChip(name: "\(ownerName) (du)", color: party.color.color, badge: "🎙")
+                    NameChip(name: String(localized: "\(ownerName) (du)"), color: party.color.color, badge: "🎙")
                         .help("Du am Mikrofon – wirst immer automatisch erkannt")
                 }
                 ForEach(draft.people(in: party)) { person in
@@ -572,13 +606,13 @@ struct HotkeyCheatSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                row("⌃⌥ 1 … 9", "Diese Person spricht gerade")
-                row("⌃⌥ 0", "Sprecher unbekannt")
-                row("⌃⌥ N", "Neuen Namen eintippen")
-                row("⌃⌥ M", "Wichtige Stelle markieren")
-                row("⌃⌥ A", "Aufgabe markieren")
-                row("⌃⌥ E", "Entscheidung markieren")
-                row("⌃⌥ R", "Aufnahme beenden")
+                row("⌃⌥ 1 … 9", String(localized: "Diese Person spricht gerade"))
+                row("⌃⌥ 0", String(localized: "Sprecher unbekannt"))
+                row("⌃⌥ N", String(localized: "Neuen Namen eintippen"))
+                row("⌃⌥ M", String(localized: "Wichtige Stelle markieren"))
+                row("⌃⌥ A", String(localized: "Aufgabe markieren"))
+                row("⌃⌥ E", String(localized: "Entscheidung markieren"))
+                row("⌃⌥ R", String(localized: "Aufnahme beenden"))
             }
         }
     }

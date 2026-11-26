@@ -64,7 +64,7 @@ struct SidebarView: View {
     /// Gespräche nach „Heute“, „Gestern“, „Diese Woche“, „Früher“ gruppieren.
     private var groups: [(title: String, entries: [SessionStore.Entry])] {
         let calendar = Calendar.current
-        var buckets: [(String, [SessionStore.Entry])] = [("Heute", []), ("Gestern", []), ("Diese Woche", []), ("Früher", [])]
+        var buckets: [(String, [SessionStore.Entry])] = [(String(localized: "Heute"), []), (String(localized: "Gestern"), []), (String(localized: "Diese Woche"), []), (String(localized: "Früher"), [])]
         for entry in filtered {
             let date = entry.session.startedAt
             let index: Int

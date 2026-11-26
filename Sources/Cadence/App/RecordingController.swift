@@ -41,8 +41,35 @@ final class RecordingController: ObservableObject {
     private var transcriptionTask: Task<Void, Never>?
     private var clockTimer: Timer?
     private var autosaveTimer: Timer?
+    private var watchdogTimer: Timer?
+    private var systemTarget: SystemAudioTarget = .allSystemAudio
+    private var lastMicSound = Date()
+    private var systemRestarts = 0
+    /// Hinweis während der Aufnahme, wenn eine Spur nichts liefert.
+    @Published private(set) var audioWarning: String?
+    /// Eigenes Mikrofon gerade stumm (live umschaltbar).
+    @Published private(set) var micMuted = false
+    private let micMuteFlag = Locked(false)
+    var hasMicrophone: Bool { micTrack != nil }
+
+    func setMicMuted(_ muted: Bool) {
+        micMuted = muted
+        micMuteFlag.withLock { $0 = muted }
+        lastMicSound = Date()
+        if muted, audioWarning != nil, systemRestarts < 3 { audioWarning = nil }
+    }
     private var startDate = Date()
     private var liveTranscriptionWorked = true
+
+    // Live-Stimmerkennung
+    private var liveDiarizationContinuation: AsyncStream<SpeechChunk>.Continuation?
+    private var liveDiarizationTask: Task<Void, Never>?
+    private var liveRegistry = LiveSpeakerRegistry()
+    private var liveTurns: [DiarizedTurn] = []
+    /// Stimmen, die du live per Klick einer Person zugeordnet hast (Cluster → Person).
+    private var pinnedClusters: [Int: UUID] = [:]
+    /// Ist die Live-Stimmerkennung in dieser Aufnahme aktiv?
+    @Published private(set) var liveDiarizationActive = false
 
     init(store: SessionStore, models: ModelManager) {
         self.store = store
@@ -61,19 +88,24 @@ final class RecordingController: ObservableObject {
         lastRecognizedNames = []
 
         let defaults = UserDefaults.standard
-        guard await MicrophoneCapture.requestPermission() else {
-            fail("Kein Zugriff auf das Mikrofon. Bitte in Systemeinstellungen → Datenschutz & Sicherheit → Mikrofon erlauben.")
+        // Das Mikro läuft immer mit (falls erlaubt) und lässt sich live stumm schalten.
+        // „Mein Mikrofon aufnehmen“ aus = Start stummgeschaltet.
+        let recordMicrophone = defaults.bool(forKey: SettingsKey.recordMicrophone)
+        let micAllowed = await MicrophoneCapture.requestPermission()
+        if recordMicrophone, !micAllowed {
+            fail(String(localized: "Kein Zugriff auf das Mikrofon. Bitte in Systemeinstellungen → Datenschutz & Sicherheit → Mikrofon erlauben."))
             return
         }
+        setMicMuted(!recordMicrophone)
 
         var newSession = draft.makeSession(ownerName: defaults.string(forKey: SettingsKey.ownerName) ?? Defaults.ownerName)
         newSession.sourceDescription = target.label
         let language = LanguageOption(rawValue: defaults.string(forKey: SettingsKey.language) ?? "de") ?? .german
         newSession.language = language.whisperCode
         newSession.consentConfirmed = consentConfirmed
-        newSession.audio = AudioFiles(system: "system.m4a", microphone: "mikrofon.m4a")
+        newSession.audio = AudioFiles(system: "system.m4a", microphone: micAllowed ? "mikrofon.m4a" : nil)
         if consentConfirmed {
-            newSession.addMarker(.consent, text: "Einwilligung zur Aufzeichnung bestätigt", at: 0)
+            newSession.addMarker(.consent, text: String(localized: "Einwilligung zur Aufzeichnung bestätigt"), at: 0)
         }
 
         newSession.startedAt = Date()
@@ -81,49 +113,76 @@ final class RecordingController: ObservableObject {
         do {
             folder = try store.save(newSession, writeMarkdown: false)
         } catch {
-            fail("Speicherort nicht beschreibbar: \(error.localizedDescription)")
+            fail(String(localized: "Speicherort nicht beschreibbar: \(error.localizedDescription)"))
             return
         }
         do {
             systemTrack = try AudioTrackRecorder(source: .system, fileURL: folder.appendingPathComponent("system.m4a"))
-            micTrack = try AudioTrackRecorder(source: .microphone, fileURL: folder.appendingPathComponent("mikrofon.m4a"))
+            micTrack = micAllowed
+                ? try AudioTrackRecorder(source: .microphone, fileURL: folder.appendingPathComponent("mikrofon.m4a"))
+                : nil
         } catch {
             store.delete(newSession.id)
-            fail("Audiodateien konnten nicht angelegt werden: \(error.localizedDescription)")
+            fail(String(localized: "Audiodateien konnten nicht angelegt werden: \(error.localizedDescription)"))
             return
         }
 
         // Abschnitte beider Spuren landen in einer gemeinsamen Warteschlange.
         let (stream, continuation) = AsyncStream<SpeechChunk>.makeStream()
         chunkContinuation = continuation
+        let liveDiarization = defaults.bool(forKey: SettingsKey.liveDiarization) && defaults.bool(forKey: SettingsKey.runDiarization)
+        var liveStream: AsyncStream<SpeechChunk>?
+        if liveDiarization {
+            let (stream, liveContinuation) = AsyncStream<SpeechChunk>.makeStream()
+            liveStream = stream
+            liveDiarizationContinuation = liveContinuation
+        }
+        let liveContinuation = liveDiarizationContinuation
         for track in [systemTrack, micTrack].compactMap({ $0 }) {
             let source = track.source
-            track.onChunk = { chunk in continuation.yield(chunk) }
+            track.onChunk = { chunk in
+                continuation.yield(chunk)
+                if source == .system { liveContinuation?.yield(chunk) }
+            }
             track.onLevel = { [weak self] level in
                 Task { @MainActor in
                     guard let self else { return }
-                    if source == .system { self.systemLevel = level } else { self.micLevel = level }
+                    if source == .system { self.systemLevel = level } else {
+                        self.micLevel = level
+                        if level > 0.0001 { self.lastMicSound = Date() }
+                    }
                 }
             }
         }
 
+        systemTarget = target
+        systemRestarts = 0
+        audioWarning = nil
         do {
-            let systemRecorder = systemTrack
-            try systemTap.start(target: target) { buffer in systemRecorder?.append(buffer) }
+            try startSystemTap()
         } catch {
             store.delete(newSession.id)
-            fail("Systemaudio konnte nicht aufgenommen werden: \(error.localizedDescription)\n\nPrüfe Systemeinstellungen → Datenschutz & Sicherheit → Bildschirm- & Systemaudioaufnahme.")
+            fail(String(localized: "Systemaudio konnte nicht aufgenommen werden: \(error.localizedDescription)\n\nPrüfe Systemeinstellungen → Datenschutz & Sicherheit → Bildschirm- & Systemaudioaufnahme."))
             return
         }
-        do {
-            let voiceProcessing = defaults.bool(forKey: SettingsKey.voiceProcessing)
-            let micRecorder = micTrack
-            try microphone.start(voiceProcessing: voiceProcessing) { buffer in micRecorder?.append(buffer) }
-        } catch {
-            systemTap.stop()
-            store.delete(newSession.id)
-            fail("Mikrofon konnte nicht gestartet werden: \(error.localizedDescription)")
-            return
+        if let micRecorder = micTrack {
+            do {
+                // Echounterdrückung koppelt das Mikro an die Ausgabe. Mit Bluetooth- oder AirPlay-Lautsprechern
+                // liefert sie nur Stille – dann ohne aufnehmen, damit Cadence unabhängig von der Ausgabe läuft.
+                let voiceProcessing = defaults.bool(forKey: SettingsKey.voiceProcessing) && !SystemAudioTap.outputIsWireless
+                let deviceUID = defaults.string(forKey: SettingsKey.microphoneDevice).flatMap { $0.isEmpty ? nil : $0 }
+                let muted = micMuteFlag
+                try microphone.start(voiceProcessing: voiceProcessing, deviceUID: deviceUID) { buffer in
+                    // Stumm: Stille schreiben statt nichts, damit die Spur zeitlich synchron bleibt.
+                    if muted.withLock({ $0 }) { buffer.silence() }
+                    micRecorder.append(buffer)
+                }
+            } catch {
+                // Kein Grund, die ganze Aufnahme abzubrechen: Der Ton der App läuft weiter.
+                micTrack = nil
+                newSession.audio.microphone = nil
+                audioWarning = String(localized: "Mikrofon konnte nicht gestartet werden: \(error.localizedDescription)")
+            }
         }
 
         startDate = Date()
@@ -137,6 +196,15 @@ final class RecordingController: ObservableObject {
         liveTranscriptionWorked = true
         transcriptionTask = Task { [weak self] in
             await self?.runTranscription(stream: stream, language: language.whisperCode)
+        }
+        liveRegistry = LiveSpeakerRegistry()
+        liveTurns = []
+        pinnedClusters = [:]
+        liveDiarizationActive = liveStream != nil
+        if let liveStream {
+            liveDiarizationTask = Task { [weak self] in
+                await self?.runLiveDiarization(stream: liveStream)
+            }
         }
     }
 
@@ -160,6 +228,94 @@ final class RecordingController: ObservableObject {
         guard !segments.isEmpty, var current = session else { return }
         current.segments.append(contentsOf: segments)
         current.segments.sort { $0.start < $1.start }
+        if !liveTurns.isEmpty { SpeakerResolver.applyClusters(liveTurns, to: &current.segments) }
+        SpeakerResolver.resolve(&current)
+        session = current
+    }
+
+    // MARK: - Live-Stimmerkennung
+
+    /// Sammelt Sprache der Gegenseite und trennt sie alle ~12 Sekunden in Stimmen.
+    /// Die Fenster werden über Stimm-Fingerabdrücke zu dauerhaften Sprechern verbunden.
+    private func runLiveDiarization(stream: AsyncStream<SpeechChunk>) async {
+        var buffer: [SpeechChunk] = []
+        var bufferedSeconds = 0.0
+        for await chunk in stream {
+            buffer.append(chunk)
+            bufferedSeconds += chunk.duration
+            guard bufferedSeconds >= 12 else { continue }
+            await diarizeLiveWindow(buffer)
+            // Etwas Überlappung behalten, damit Sprecherwechsel an der Grenze nicht verloren gehen.
+            if let last = buffer.last, last.duration < 8 {
+                buffer = [last]
+                bufferedSeconds = last.duration
+            } else {
+                buffer = []
+                bufferedSeconds = 0
+            }
+        }
+        // Nach dem Stoppen übernimmt die vollständige Sprechertrennung den Rest.
+    }
+
+    private func diarizeLiveWindow(_ chunks: [SpeechChunk]) async {
+        // Abschnitte aneinanderhängen und merken, wo jeder im Gesprächsverlauf lag.
+        var samples: [Float] = []
+        var offsets: [(local: Double, absolute: Double, duration: Double)] = []
+        for chunk in chunks {
+            offsets.append((Double(samples.count) / SpeechChunker.sampleRate, chunk.startTime, chunk.duration))
+            samples += chunk.samples
+        }
+        guard let output = try? await diarizer.diarize(samples: samples, expectedSpeakers: nil),
+              !output.turns.isEmpty else { return }
+
+        var speech: [Int: Double] = [:]
+        for turn in output.turns { speech[turn.clusterID, default: 0] += turn.end - turn.start }
+        let mapping = liveRegistry.register(output.embeddings, speech: speech)
+
+        // Lokale Zeiten zurück auf die Gesprächszeit abbilden (an Abschnittsgrenzen teilen).
+        var turns: [DiarizedTurn] = []
+        for turn in output.turns {
+            guard let global = mapping[turn.clusterID] else { continue }
+            for piece in offsets {
+                let start = max(turn.start, piece.local), end = min(turn.end, piece.local + piece.duration)
+                guard end > start else { continue }
+                turns.append(DiarizedTurn(clusterID: global,
+                                          start: piece.absolute + (start - piece.local),
+                                          end: piece.absolute + (end - piece.local)))
+            }
+        }
+        // Neuere Fenster ersetzen ältere im überlappenden Bereich.
+        if let first = turns.map(\.start).min(), let last = turns.map(\.end).max() {
+            liveTurns.removeAll { $0.start >= first && $0.end <= last }
+        }
+        liveTurns += turns
+        liveTurns.sort { $0.start < $1.start }
+        applyLiveClusters()
+    }
+
+    /// Cluster auf das Transkript anwenden und – wo möglich – Personen zuordnen:
+    /// deine Klicks zuerst, dann deine Live-Markierungen, dann bekannte Stimmen.
+    private func applyLiveClusters() {
+        guard var current = session, !liveTurns.isEmpty else { return }
+        SpeakerResolver.applyClusters(liveTurns, to: &current.segments)
+        current.clusterEmbeddings = liveRegistry.centroids
+        var keep = pinnedClusters
+        for (cluster, _) in current.recognizedClusters ?? [:] {
+            if let person = current.clusterAssignments[cluster] { keep[cluster] = keep[cluster] ?? person }
+        }
+        current.clusterAssignments = SpeakerResolver.inferClusterAssignments(
+            segments: current.segments, tags: current.speakerTags, existing: keep
+        )
+        store.voices.recognize(in: &current)
+        SpeakerResolver.resolve(&current)
+        session = current
+    }
+
+    /// Live: Diese Stimme gehört dieser Person (gilt für alles, was sie sagt – auch künftig).
+    func assignLiveCluster(_ cluster: Int, to personID: UUID) {
+        pinnedClusters[cluster] = personID
+        guard var current = session else { return }
+        current.clusterAssignments[cluster] = personID
         SpeakerResolver.resolve(&current)
         session = current
     }
@@ -181,6 +337,12 @@ final class RecordingController: ObservableObject {
     /// spricht sie vermutlich noch – dann gilt sie ab Beginn des Beitrags als aktueller Sprecher.
     func assignTurn(segmentIDs: [UUID], start: Double, to personID: UUID, isLatest: Bool) {
         guard var current = session else { return }
+        // Ist die Stimme schon erkannt, gleich die ganze Stimme zuordnen.
+        let clusters = Set(current.segments.filter { segmentIDs.contains($0.id) }.compactMap(\.clusterID))
+        if clusters.count == 1, let cluster = clusters.first {
+            pinnedClusters[cluster] = personID
+            current.clusterAssignments[cluster] = personID
+        }
         current.assign(segments: segmentIDs, to: personID)
         if isLatest && isRecording {
             current.tagSpeaker(personID, at: start)
@@ -227,7 +389,7 @@ final class RecordingController: ObservableObject {
 
     func stop() async {
         guard isRecording, var current = session else { return }
-        phase = .finishing("Aufnahme wird beendet …")
+        phase = .finishing(String(localized: "Aufnahme wird beendet …"))
         stopTimers()
         current.duration = Date().timeIntervalSince(startDate)
         elapsed = current.duration
@@ -237,18 +399,26 @@ final class RecordingController: ObservableObject {
         systemTrack?.finish()
         micTrack?.finish()
         chunkContinuation?.finish()
+        liveDiarizationContinuation?.finish()
         session = current
 
-        phase = .finishing("Restliche Abschnitte werden transkribiert …")
+        phase = .finishing(String(localized: "Restliche Abschnitte werden transkribiert …"))
         await transcriptionTask?.value
+        await liveDiarizationTask?.value
+        liveDiarizationTask = nil
+        liveDiarizationContinuation = nil
+        liveDiarizationActive = false
         current = session ?? current
 
         let folder = store.folder(for: current)
         let systemURL = folder.appendingPathComponent("system.m4a")
         let micURL = folder.appendingPathComponent("mikrofon.m4a")
 
-        if !liveTranscriptionWorked {
-            await transcribeFromFiles(&current, folder: folder) { [weak self] status in
+        // Live wird in kurzen Stücken transkribiert, damit Text schnell erscheint – dabei werden Sätze
+        // zerschnitten. Nach dem Gespräch daher einmal sauber über die ganzen Aufnahmen (an Pausen
+        // geschnitten, mit vollem Kontext). Deine Zuordnungen bleiben erhalten.
+        if !liveTranscriptionWorked || UserDefaults.standard.bool(forKey: SettingsKey.finalPass) {
+            await transcribeFromFiles(&current, folder: folder, keepAssignments: liveTranscriptionWorked) { [weak self] status in
                 self?.phase = .finishing(status)
             }
         }
@@ -256,11 +426,22 @@ final class RecordingController: ObservableObject {
             self?.phase = .finishing(status)
         }
 
+        if UserDefaults.standard.bool(forKey: SettingsKey.autoSummary), Summarizer.isAvailable, !current.segments.isEmpty {
+            phase = .finishing(String(localized: "Zusammenfassung wird erstellt …"))
+            do {
+                current.summary = try await Summarizer.summarize(current) { [weak self] status in
+                    self?.phase = .finishing(status)
+                }
+            } catch {
+                // Kein Drama: Die Zusammenfassung lässt sich später erneut anstoßen.
+            }
+        }
+
         if UserDefaults.standard.bool(forKey: SettingsKey.saveAudio) {
-            phase = .finishing("Audio wird zusammengeführt …")
+            phase = .finishing(String(localized: "Audio wird zusammengeführt …"))
             let combinedURL = folder.appendingPathComponent("gesamt.m4a")
             do {
-                try await AudioMixdown.combine([systemURL, micURL], into: combinedURL)
+                try await AudioMixdown.combine([systemURL, micURL].filter { FileManager.default.fileExists(atPath: $0.path) }, into: combinedURL)
                 current.audio.combined = "gesamt.m4a"
             } catch {
                 // Einzelspuren bleiben in jedem Fall erhalten.
@@ -277,7 +458,7 @@ final class RecordingController: ObservableObject {
         do {
             try store.save(current)
         } catch {
-            errorMessage = "Speichern fehlgeschlagen: \(error.localizedDescription)"
+            errorMessage = String(localized: "Speichern fehlgeschlagen: \(error.localizedDescription)")
         }
 
         systemTrack = nil
@@ -297,7 +478,7 @@ final class RecordingController: ObservableObject {
     func retranscribe(_ id: UUID) async {
         guard reprocessing == nil, let entry = store.entries.first(where: { $0.id == id }) else { return }
         var session = entry.session
-        reprocessing = (id, "Sprachmodell wird geladen …")
+        reprocessing = (id, String(localized: "Sprachmodell wird geladen …"))
         await transcribeFromFiles(&session, folder: entry.folder) { [weak self] status in
             self?.reprocessing = (id, status)
         }
@@ -308,39 +489,65 @@ final class RecordingController: ObservableObject {
         reprocessing = nil
     }
 
-    private func transcribeFromFiles(_ session: inout Session, folder: URL, status: (String) -> Void) async {
-        status("Sprachmodell wird geladen …")
+    /// Zusammenfassung für ein gespeichertes Gespräch (neu) erstellen.
+    func summarize(_ id: UUID) async {
+        guard reprocessing == nil, let entry = store.entries.first(where: { $0.id == id }) else { return }
+        var session = entry.session
+        reprocessing = (id, String(localized: "Zusammenfassung wird erstellt …"))
+        do {
+            session.summary = try await Summarizer.summarize(session) { [weak self] status in
+                self?.reprocessing = (id, status)
+            }
+            try? store.save(session)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        reprocessing = nil
+    }
+
+    private func transcribeFromFiles(_ session: inout Session, folder: URL, keepAssignments: Bool = false,
+                                     status: @escaping @MainActor (String) -> Void) async {
+        status(String(localized: "Sprachmodell wird geladen …"))
         guard await models.ensureReady() else {
-            errorMessage = "Das Sprachmodell ist nicht verfügbar. Die Aufnahme ist gespeichert – du kannst sie später über „Transkribieren“ nachholen."
+            errorMessage = String(localized: "Das Sprachmodell ist nicht verfügbar. Die Aufnahme ist gespeichert – du kannst sie später über „Transkribieren“ nachholen.")
             return
         }
         let language = session.language
         var segments: [TranscriptSegment] = []
         let tracks: [(AudioSource, String?, String)] = [
-            (.microphone, session.audio.microphone, "dein Mikrofon"),
-            (.system, session.audio.system, "die Gegenseite")
+            (.microphone, session.audio.microphone, String(localized: "dein Mikrofon")),
+            (.system, session.audio.system, String(localized: "die Gegenseite"))
         ]
         for (source, name, label) in tracks {
             guard let name else { continue }
             let url = folder.appendingPathComponent(name)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            status("Transkribiere \(label) …")
+            status(String(localized: "Transkribiere \(label) …"))
             do {
-                segments += try await models.engine.transcribeFile(url, source: source, language: language) { _ in }
+                segments += try await models.engine.transcribeFile(url, source: source, language: language) { progress in
+                    let percent = Int((progress * 100).rounded())
+                    Task { @MainActor in status(String(localized: "Transkribiere \(label) … \(percent) %")) }
+                }
             } catch {
-                errorMessage = "Transkription fehlgeschlagen: \(error.localizedDescription)"
+                errorMessage = String(localized: "Transkription fehlgeschlagen: \(error.localizedDescription)")
             }
         }
         guard !segments.isEmpty else { return }
-        session.segments = segments.sorted { $0.start < $1.start }
-        SpeakerResolver.resolve(&session)
+        // Ganze Sätze statt Abschnittsstücke – liest sich besser und lässt sich sauber zuordnen.
+        segments = SentenceMerger.merge(segments)
+        if keepAssignments {
+            session.replaceTranscript(with: segments)
+        } else {
+            session.segments = segments.sorted { $0.start < $1.start }
+            SpeakerResolver.resolve(&session)
+        }
     }
 
     private func diarize(_ session: inout Session, systemURL: URL, status: (String) -> Void) async {
         guard UserDefaults.standard.bool(forKey: SettingsKey.runDiarization),
               session.segments.contains(where: { $0.source == .system }),
               FileManager.default.fileExists(atPath: systemURL.path) else { return }
-        status("Stimmen werden erkannt …")
+        status(String(localized: "Stimmen werden erkannt …"))
         do {
             let samples = try await Task.detached(priority: .userInitiated) {
                 try AudioMixdown.loadMono16k(systemURL)
@@ -358,7 +565,7 @@ final class RecordingController: ObservableObject {
                 lastRecognizedNames = recognized
             }
         } catch {
-            errorMessage = "Stimmenerkennung fehlgeschlagen: \(error.localizedDescription). Deine Live-Zuordnungen bleiben erhalten."
+            errorMessage = String(localized: "Stimmenerkennung fehlgeschlagen: \(error.localizedDescription). Deine Live-Zuordnungen bleiben erhalten.")
         }
     }
 
@@ -370,10 +577,49 @@ final class RecordingController: ObservableObject {
         micTrack = nil
         chunkContinuation?.finish()
         chunkContinuation = nil
+        liveDiarizationContinuation?.finish()
+        liveDiarizationContinuation = nil
         phase = .idle
     }
 
+    private func startSystemTap() throws {
+        let systemRecorder = systemTrack
+        try systemTap.start(target: systemTarget) { buffer in systemRecorder?.append(buffer) }
+    }
+
+    /// Prüft alle paar Sekunden, ob beide Spuren noch Ton liefern.
+    private func checkAudio() {
+        guard isRecording else { return }
+        // Systemton: Der Tap liefert auch bei Stille laufend Daten. Bleiben sie aus, hängt das
+        // Gerät (z. B. Bluetooth-Moduswechsel) – dann Tap und Aggregate neu aufbauen.
+        if systemTap.secondsSinceLastBuffer > 4 {
+            systemTap.stop()
+            systemRestarts += 1
+            do {
+                try startSystemTap()
+                if systemRestarts >= 3 {
+                    audioWarning = String(localized: "Der Systemton reißt immer wieder ab. Wähle als Ausgabe die Mac-Lautsprecher oder Kopfhörer statt eines Bluetooth-Lautsprechers.")
+                }
+            } catch {
+                audioWarning = String(localized: "Systemton konnte nicht neu gestartet werden: \(error.localizedDescription)")
+            }
+        }
+        // Mikrofon: Ein echtes Mikro rauscht immer ein wenig. Absolute Stille heißt, es kommt nichts an.
+        if micTrack != nil, !micMuted, Date().timeIntervalSince(lastMicSound) > 10 {
+            let echo = UserDefaults.standard.bool(forKey: SettingsKey.voiceProcessing) && !SystemAudioTap.outputIsWireless
+            audioWarning = echo
+                ? String(localized: "Dein Mikrofon liefert keinen Ton. Das passiert oft mit Echounterdrückung und Bluetooth-Geräten. Schalte sie in den Einstellungen aus oder wähle ein anderes Mikrofon.")
+                : String(localized: "Dein Mikrofon liefert keinen Ton. Prüfe, ob das richtige Mikrofon ausgewählt und nicht stummgeschaltet ist.")
+        } else if audioWarning != nil, micTrack == nil || micMuted || Date().timeIntervalSince(lastMicSound) < 2, systemRestarts < 3 {
+            audioWarning = nil
+        }
+    }
+
     private func startTimers() {
+        lastMicSound = Date()
+        watchdogTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkAudio() }
+        }
         clockTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.isRecording else { return }
@@ -392,6 +638,9 @@ final class RecordingController: ObservableObject {
     private func stopTimers() {
         clockTimer?.invalidate()
         autosaveTimer?.invalidate()
+        watchdogTimer?.invalidate()
+        watchdogTimer = nil
+        audioWarning = nil
         clockTimer = nil
         autosaveTimer = nil
     }

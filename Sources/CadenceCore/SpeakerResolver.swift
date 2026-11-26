@@ -67,6 +67,7 @@ public enum SpeakerResolver {
         existing: [Int: UUID] = [:]
     ) -> [Int: UUID] {
         var votes: [Int: [UUID: Double]] = [:]
+        var manualVotes: [Int: Set<UUID>] = [:]
         for segment in segments where segment.source == .system {
             guard let cluster = segment.clusterID else { continue }
             let manual = segment.manualPersonID
@@ -74,18 +75,26 @@ public enum SpeakerResolver {
             // Manuelle Zuordnungen zählen deutlich stärker als Live-Tags.
             if let manual {
                 votes[cluster, default: [:]][manual, default: 0] += max(segment.duration, 0.5) * 3
+                manualVotes[cluster, default: []].insert(manual)
             } else if let live {
                 votes[cluster, default: [:]][live, default: 0] += max(segment.duration, 0.5)
             }
         }
 
         var result = existing
-        // Eine Person darf mehreren Clustern zugeordnet werden: Die Diarization teilt eine
-        // Stimme gelegentlich in zwei Cluster auf, dann sollen beide dieselbe Person bekommen.
-        for (cluster, personVotes) in votes where result[cluster] == nil {
-            if let winner = personVotes.max(by: { $0.value < $1.value }) {
-                result[cluster] = winner.key
-            }
+        var usedPeople = Set(existing.values)
+        // Stärkste Zuordnungen zuerst. Über Live-Tags bekommt jede Person höchstens eine Stimme:
+        // Läuft ein einziger Tag über zwei Stimmen hinweg (z. B. „Markus spricht“, dann antwortet
+        // jemand anderes), darf die zweite Stimme nicht auch „Markus“ werden. Von Hand zugeordnete
+        // Abschnitte dürfen eine Person dagegen mehreren Clustern geben – die Diarization teilt eine
+        // Stimme gelegentlich in zwei Cluster auf.
+        let candidates = votes.flatMap { cluster, people in people.map { (cluster: cluster, person: $0.key, weight: $0.value) } }
+            .sorted { $0.weight != $1.weight ? $0.weight > $1.weight : $0.cluster < $1.cluster }
+        for candidate in candidates where result[candidate.cluster] == nil {
+            let manual = manualVotes[candidate.cluster]?.contains(candidate.person) == true
+            guard manual || !usedPeople.contains(candidate.person) else { continue }
+            result[candidate.cluster] = candidate.person
+            usedPeople.insert(candidate.person)
         }
         return result
     }
@@ -96,6 +105,7 @@ public enum SpeakerResolver {
         let tags = session.speakerTags
         let clusters = session.clusterAssignments
         let knownPeople = Set(session.people.map(\.id))
+        let clusteredPeople = Set(clusters.values)
 
         for index in session.segments.indices {
             var segment = session.segments[index]
@@ -108,7 +118,10 @@ public enum SpeakerResolver {
             } else if let cluster = segment.clusterID, let person = clusters[cluster], knownPeople.contains(person) {
                 segment.personID = person
                 segment.origin = .cluster
-            } else if let person = liveTaggedPerson(at: segment.midpoint, tags: tags), knownPeople.contains(person) {
+            } else if let person = liveTaggedPerson(at: segment.midpoint, tags: tags), knownPeople.contains(person),
+                      !(segment.clusterID != nil && clusteredPeople.contains(person)) {
+                // Gehört die live markierte Person schon zu einer anderen Stimme, ist dieser Abschnitt
+                // jemand anderes – dann lieber „Sprecher n“ anzeigen als falsch zuordnen.
                 segment.personID = person
                 segment.origin = .liveTag
             } else {

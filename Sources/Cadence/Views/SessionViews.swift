@@ -22,6 +22,11 @@ struct LiveSessionView: View {
             ModelStatusBanner(duringRecording: true)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
+            if let warning = recorder.audioWarning {
+                Banner(kind: .warning, title: String(localized: "Es kommt kein Ton an"), message: warning)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 8)
+            }
             Divider()
             TranscriptView(session: sessionBinding, isLive: true, onAssignTurn: { turn, personID, isLatest in
                 recorder.assignTurn(segmentIDs: turn.segments.map(\.id), start: turn.start, to: personID, isLatest: isLatest)
@@ -63,6 +68,11 @@ struct LiveSessionView: View {
                         Text("REC").font(.caption.weight(.heavy)).foregroundStyle(Theme.record)
                     }
                     Text(recorder.session?.sourceDescription ?? "")
+                    if recorder.liveDiarizationActive {
+                        Label("Stimmen werden live erkannt", systemImage: "waveform.badge.magnifyingglass")
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(Theme.accent)
+                    }
                     if recorder.backlog > 1 {
                         Text("· \(recorder.backlog) Abschnitte warten").foregroundStyle(.orange)
                     }
@@ -73,9 +83,22 @@ struct LiveSessionView: View {
 
             Spacer()
 
+            if recorder.hasMicrophone && recorder.isRecording {
+                Button {
+                    recorder.setMicMuted(!recorder.micMuted)
+                } label: {
+                    Label(recorder.micMuted ? "Mikro an" : "Mikro aus",
+                          systemImage: recorder.micMuted ? "mic.slash.fill" : "mic.fill")
+                }
+                .buttonStyle(.bordered)
+                .tint(recorder.micMuted ? .red : nil)
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .help(recorder.micMuted ? "Mikrofon wieder einschalten (⇧⌘M)" : "Mikrofon stummschalten (⇧⌘M)")
+            }
+
             HStack(spacing: 14) {
-                meter("mic.fill", "Du", recorder.micLevel, PartyColor.blue.color)
-                meter("speaker.wave.2.fill", "Gegenseite", recorder.systemLevel, PartyColor.orange.color)
+                meter(recorder.micMuted ? "mic.slash.fill" : "mic.fill", String(localized: "Du"), recorder.micMuted ? 0 : recorder.micLevel, PartyColor.blue.color)
+                meter("speaker.wave.2.fill", String(localized: "Gegenseite"), recorder.systemLevel, PartyColor.orange.color)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -178,6 +201,9 @@ struct CopyMenu: View {
                 Button("Nur Text") { copy(speakers: false, timestamps: false) }
             }
             Divider()
+            if let summary = SessionExporter(session: session).summaryText() {
+                Button("Zusammenfassung") { put(summary) }
+            }
             Button("Protokoll (Markdown)") { put(SessionExporter(session: session).protocolMarkdown()) }
             Button("Transkript (Markdown)") { put(SessionExporter(session: session).markdown()) }
         } label: {
@@ -235,12 +261,12 @@ struct SavedSessionView: View {
         VStack(spacing: 0) {
             header
             if let reprocessStatus {
-                Banner(kind: .info, title: reprocessStatus, message: "Du kannst Cadence währenddessen normal weiterbenutzen.", progress: nil)
+                Banner(kind: .info, title: reprocessStatus, message: String(localized: "Du kannst Cadence währenddessen normal weiterbenutzen."), progress: nil)
                     .padding(.horizontal, 20)
                     .padding(.bottom, 10)
             } else if draft.segments.isEmpty && hasAudio {
-                Banner(kind: .warning, title: "Dieses Gespräch ist noch nicht transkribiert",
-                       message: "Die Aufnahme ist gespeichert. Cadence kann sie jetzt nachträglich transkribieren.") {
+                Banner(kind: .warning, title: String(localized: "Dieses Gespräch ist noch nicht transkribiert"),
+                       message: String(localized: "Die Aufnahme ist gespeichert. Cadence kann sie jetzt nachträglich transkribieren.")) {
                     Button("Jetzt transkribieren") {
                         Task { await recorder.retranscribe(draft.id) }
                     }
@@ -249,6 +275,11 @@ struct SavedSessionView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 10)
+            }
+            if !draft.segments.isEmpty {
+                SummaryCard(session: $draft)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
             }
             Divider()
             TranscriptView(
@@ -329,16 +360,16 @@ struct SavedSessionView: View {
             HStack(spacing: 8) {
                 InfoPill(icon: "calendar", text: draft.startedAt.formatted(date: .abbreviated, time: .shortened))
                 InfoPill(icon: "clock", text: TimeFormat.duration(draft.duration))
-                InfoPill(icon: "person.2", text: "\(draft.people.count) Personen")
+                InfoPill(icon: "person.2", text: String(localized: "\(draft.people.count) Personen"))
                 if !draft.markers.isEmpty {
-                    InfoPill(icon: "star", text: "\(draft.markers.count) Marker")
+                    InfoPill(icon: "star", text: String(localized: "\(draft.markers.count) Marker"))
                 }
                 if draft.consentConfirmed {
-                    InfoPill(icon: "checkmark.shield", text: "Einwilligung")
+                    InfoPill(icon: "checkmark.shield", text: String(localized: "Einwilligung"))
                 }
                 if let recognized = draft.recognizedClusters, !recognized.isEmpty {
                     let names = recognized.keys.sorted().compactMap { draft.person(draft.clusterAssignments[$0])?.name }
-                    InfoPill(icon: "waveform", text: "Stimme erkannt: " + names.joined(separator: ", "))
+                    InfoPill(icon: "waveform", text: String(localized: "Stimme erkannt: \(names.joined(separator: ", "))"))
                         .help("Cadence hat diese Stimmen aus früheren Gesprächen wiedererkannt. Falls etwas nicht stimmt, rechts unter „Erkannte Stimmen“ korrigieren.")
                 }
             }
@@ -507,6 +538,120 @@ final class AudioPlayer: ObservableObject {
                     self.timer?.invalidate()
                 }
             }
+        }
+    }
+}
+
+// MARK: - Zusammenfassung
+
+/// Zusammenfassung, Entscheidungen und Aufgaben über dem Transkript (einklappbar).
+struct SummaryCard: View {
+    @EnvironmentObject private var recorder: RecordingController
+    @Binding var session: Session
+    @AppStorage("summaryExpanded") private var expanded = true
+
+    private var isWorking: Bool { recorder.reprocessing?.id == session.id }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.bold))
+                            .rotationEffect(.degrees(expanded ? 90 : 0))
+                        Image(systemName: "sparkles").foregroundStyle(Theme.gradient)
+                        Text("Zusammenfassung").font(.headline)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                if isWorking {
+                    ProgressView().controlSize(.small)
+                } else if Summarizer.isAvailable && !session.segments.isEmpty {
+                    Button(session.summary == nil ? "Zusammenfassen" : "Neu erstellen") {
+                        Task { await recorder.summarize(session.id) }
+                    }
+                    .disabled(recorder.reprocessing != nil)
+                }
+            }
+
+            if expanded {
+                if let summary = session.summary {
+                    content(summary)
+                } else if let reason = Summarizer.unavailableReason {
+                    Text(reason).font(.callout).foregroundStyle(.secondary)
+                } else if !isWorking {
+                    Text("Noch keine Zusammenfassung. Cadence kann Inhalt, Entscheidungen und Aufgaben lokal mit Apple Intelligence zusammenfassen.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .card(padding: 14)
+    }
+
+    @ViewBuilder
+    private func content(_ summary: MeetingSummary) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(summary.overview).textSelection(.enabled)
+                if !summary.keyPoints.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(summary.keyPoints, id: \.self) { point in
+                            Label(point, systemImage: "circle.fill")
+                                .labelStyle(BulletLabelStyle())
+                        }
+                    }
+                }
+                if !summary.decisions.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Entscheidungen").sectionTitle()
+                        ForEach(summary.decisions, id: \.self) { decision in
+                            Label(decision, systemImage: "checkmark.seal.fill").foregroundStyle(.primary)
+                        }
+                    }
+                }
+                if !summary.actionItems.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Aufgaben").sectionTitle()
+                        ForEach(summary.actionItems) { item in
+                            Toggle(isOn: Binding(
+                                get: { item.done },
+                                set: { done in
+                                    guard let index = session.summary?.actionItems.firstIndex(where: { $0.id == item.id }) else { return }
+                                    session.summary?.actionItems[index].done = done
+                                }
+                            )) {
+                                HStack(spacing: 6) {
+                                    Text(item.text).strikethrough(item.done)
+                                    if let owner = item.owner {
+                                        Text(owner).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            .toggleStyle(.checkbox)
+                        }
+                    }
+                }
+                Text("Automatisch erstellt mit Apple Intelligence – bitte prüfen.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 260)
+    }
+}
+
+private struct BulletLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            configuration.icon.font(.system(size: 5)).foregroundStyle(.secondary)
+            configuration.title
         }
     }
 }

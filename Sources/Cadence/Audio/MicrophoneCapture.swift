@@ -1,11 +1,14 @@
 import AVFoundation
+import AudioToolbox
 import Foundation
 
 /// Nimmt das eigene Mikrofon als separate Spur auf.
 final class MicrophoneCapture {
     typealias BufferHandler = @Sendable (AVAudioPCMBuffer) -> Void
 
-    private let engine = AVAudioEngine()
+    /// Pro Aufnahme neu: Eine wiederverwendete Engine behält nach Gerätewechseln oder
+    /// Echounterdrückung manchmal ein veraltetes Format und liefert dann gar nichts.
+    private var engine = AVAudioEngine()
     private(set) var isRunning = false
 
     static func requestPermission() async -> Bool {
@@ -18,9 +21,17 @@ final class MicrophoneCapture {
 
     /// - Parameter voiceProcessing: Apples Echounterdrückung. Hilfreich ohne Kopfhörer, damit die
     ///   Stimmen der Gegenseite aus den Lautsprechern nicht zusätzlich als „du“ transkribiert werden.
-    func start(voiceProcessing: Bool, handler: @escaping BufferHandler) throws {
+    /// - Parameter deviceUID: bestimmtes Eingangsgerät; `nil` = Systemstandard.
+    func start(voiceProcessing: Bool, deviceUID: String? = nil, handler: @escaping BufferHandler) throws {
         guard !isRunning else { return }
+        engine = AVAudioEngine()
         let input = engine.inputNode
+        if let deviceUID, var deviceID = InputDevices.device(uid: deviceUID),
+           deviceID != InputDevices.defaultInput(), let unit = input.audioUnit {
+            try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                           &deviceID, UInt32(MemoryLayout<AudioDeviceID>.size)),
+                      String(localized: "Mikrofon auswählen"))
+        }
         if voiceProcessing {
             try input.setVoiceProcessingEnabled(true)
             // Andere Apps (Teams!) nicht leiser drehen.
@@ -28,7 +39,7 @@ final class MicrophoneCapture {
         }
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw NSError(domain: "Cadence", code: 1, userInfo: [NSLocalizedDescriptionKey: "Kein Mikrofon gefunden."])
+            throw NSError(domain: "Cadence", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "Kein Mikrofon gefunden.")])
         }
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
             handler(buffer)

@@ -4,6 +4,7 @@ import SwiftUI
 
 @main
 struct CadenceApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store: SessionStore
     @StateObject private var recorder: RecordingController
     @StateObject private var models: ModelManager
@@ -24,7 +25,8 @@ struct CadenceApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Cadence", id: "main") {
+        // Ein einziges Hauptfenster. Nach dem Schließen holt es ein Klick aufs Dock-Symbol zurück.
+        Window("Cadence", id: "main") {
             ContentView()
                 .environmentObject(store)
                 .environmentObject(recorder)
@@ -78,12 +80,13 @@ struct CadenceApp: App {
                 .environmentObject(recorder)
                 .environmentObject(navigation)
         } label: {
-            Image(systemName: recorder.isRecording ? "record.circle.fill" : "waveform")
+            MenuBarLabel(isRecording: recorder.isRecording)
         }
 
         Settings {
             SettingsView()
                 .environmentObject(store)
+                .environmentObject(recorder)
                 .environmentObject(models)
                 .environmentObject(voices)
         }
@@ -114,4 +117,53 @@ final class Navigation: ObservableObject {
     }
 
     @Published var selection: Selection? = .newRecording
+}
+
+/// Öffnet das Hauptfenster wieder, wenn es geschlossen wurde und man aufs Dock-Symbol klickt.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { Task { @MainActor in MainWindow.show() } }
+        return true
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+}
+
+/// Merkt sich die `openWindow`-Aktion von SwiftUI, damit auch AppKit das Fenster öffnen kann.
+@MainActor
+enum MainWindow {
+    static var open: (() -> Void)?
+
+    static func show() {
+        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true && $0.canBecomeMain }) {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            open?()
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+/// Symbol in der Menüleiste. Lebt immer, solange die App läuft – deshalb wird hier `openWindow` gemerkt.
+private struct MenuBarLabel: View {
+    let isRecording: Bool
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Image(systemName: isRecording ? "record.circle.fill" : "waveform")
+            .onAppear { MainWindow.open = { openWindow(id: "main") } }
+    }
+}
+
+/// Startet Cadence neu, z. B. nach dem Wechsel der Oberflächensprache.
+@MainActor
+enum AppRelauncher {
+    static func relaunch() {
+        let path = Bundle.main.bundlePath
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", path]
+        try? process.run()
+        NSApp.terminate(nil)
+    }
 }

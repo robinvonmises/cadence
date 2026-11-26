@@ -18,6 +18,48 @@ final class SystemAudioTap {
     private let ioQueue = DispatchQueue(label: "cadence.systemaudio.io", qos: .userInitiated)
     private(set) var format: AVAudioFormat?
     private(set) var isRunning = false
+    private let lastBuffer = Locked(Date())
+
+    /// Sekunden seit dem letzten Audio-Zyklus. Ein Tap liefert auch bei Stille laufend Daten;
+    /// bleibt er aus, ist das Gerät hängen geblieben (z. B. nach einem Bluetooth-Moduswechsel).
+    var secondsSinceLastBuffer: Double {
+        guard isRunning else { return 0 }
+        return Date().timeIntervalSince(lastBuffer.withLock { $0 })
+    }
+
+    /// Taktgeber fürs Aggregate: die Standard-Ausgabe, außer sie ist Bluetooth oder AirPlay.
+    /// Solche Geräte schlafen ein oder wechseln den Modus (z. B. durch die Echounterdrückung),
+    /// dann bliebe der Tap stumm. In dem Fall lieber die eingebauten Lautsprecher nehmen.
+    static func clockDevice() throws -> AudioDeviceID {
+        let output = try AudioObjectID.defaultSystemOutputDevice()
+        guard isWireless(output) else { return output }
+        let devices = (try? AudioObjectID.system.readArray(kAudioHardwarePropertyDevices)) ?? []
+        let builtIn = devices.first { id in
+            (try? id.read(kAudioDevicePropertyTransportType, default: UInt32(0))) == kAudioDeviceTransportTypeBuiltIn
+                && hasOutput(id)
+        }
+        return builtIn ?? output
+    }
+
+    /// Bluetooth oder AirPlay – solche Ausgaben vertragen sich nicht mit Taktgeber und Echounterdrückung.
+    static func isWireless(_ device: AudioDeviceID) -> Bool {
+        let transport = (try? device.read(kAudioDevicePropertyTransportType, default: UInt32(0))) ?? 0
+        return [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE,
+                kAudioDeviceTransportTypeAirPlay].contains(transport)
+    }
+
+    /// Ist die aktuelle Standard-Ausgabe drahtlos?
+    static var outputIsWireless: Bool {
+        (try? AudioObjectID.defaultSystemOutputDevice()).map(isWireless) ?? false
+    }
+
+    private static func hasOutput(_ id: AudioDeviceID) -> Bool {
+        var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams,
+                                              mScope: kAudioObjectPropertyScopeOutput,
+                                              mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        return AudioObjectGetPropertyDataSize(id, &addr, 0, nil, &size) == noErr && size > 0
+    }
 
     func start(target: SystemAudioTarget, handler: @escaping BufferHandler) throws {
         guard !isRunning else { return }
@@ -31,7 +73,7 @@ final class SystemAudioTap {
         case .app(let bundleID, let name):
             let processes = AudioSourceCatalog.audioProcessObjects(forBundlePrefix: bundleID)
             guard !processes.isEmpty else {
-                throw CoreAudioError("\(name) gibt gerade keinen Ton aus oder ist nicht gestartet. Tipp: „Gesamter Systemton“ funktioniert immer.", -1)
+                throw CoreAudioError(String(localized: "\(name) gibt gerade keinen Ton aus oder ist nicht gestartet. Tipp: „Gesamter Systemton“ funktioniert immer."), -1)
             }
             description = CATapDescription(stereoMixdownOfProcesses: processes)
         }
@@ -43,8 +85,8 @@ final class SystemAudioTap {
         try check(AudioHardwareCreateProcessTap(description, &tapID), "Systemaudio-Tap anlegen")
 
         do {
-            // 2) Aggregate-Device mit dem Standard-Ausgabegerät als Taktgeber
-            let outputUID = try AudioObjectID.defaultSystemOutputDevice().deviceUID()
+            // 2) Aggregate-Device mit einem zuverlässigen Ausgabegerät als Taktgeber
+            let outputUID = try Self.clockDevice().deviceUID()
             let aggregate: [String: Any] = [
                 kAudioAggregateDeviceNameKey: "Cadence System Audio",
                 kAudioAggregateDeviceUIDKey: "de.cadence.tap.\(UUID().uuidString)",
@@ -68,7 +110,10 @@ final class SystemAudioTap {
             try check(AudioHardwareCreateAggregateDevice(aggregate as CFDictionary, &aggregateID), "Aggregate-Device anlegen")
 
             // 3) IOProc: Buffer kopieren (die Originaldaten sind nur im Callback gültig)
+            lastBuffer.withLock { $0 = Date() }
+            let lastBuffer = self.lastBuffer
             try check(AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateID, ioQueue) { _, inInputData, _, _, _ in
+                lastBuffer.withLock { $0 = Date() }
                 guard let source = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: inInputData, deallocator: nil),
                       let copy = source.deepCopy() else { return }
                 handler(copy)
@@ -103,6 +148,15 @@ final class SystemAudioTap {
 }
 
 extension AVAudioPCMBuffer {
+    /// Inhalt durch Stille ersetzen (für ein stummgeschaltetes Mikrofon).
+    func silence() {
+        let list = UnsafeMutableAudioBufferListPointer(mutableAudioBufferList)
+        for buffer in list {
+            guard let data = buffer.mData else { continue }
+            memset(data, 0, Int(buffer.mDataByteSize))
+        }
+    }
+
     /// Unabhängige Kopie, die den Callback überlebt.
     func deepCopy() -> AVAudioPCMBuffer? {
         guard frameLength > 0,
@@ -115,5 +169,16 @@ extension AVAudioPCMBuffer {
             memcpy(dData, sData, Int(min(s.mDataByteSize, d.mDataByteSize)))
         }
         return copy
+    }
+}
+
+/// Kleiner Thread-sicherer Wert für Audio-Callbacks.
+final class Locked<Value>: @unchecked Sendable {
+    private var value: Value
+    private let lock = NSLock()
+    init(_ value: Value) { self.value = value }
+    func withLock<T>(_ body: (inout Value) -> T) -> T {
+        lock.lock(); defer { lock.unlock() }
+        return body(&value)
     }
 }

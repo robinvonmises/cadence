@@ -26,7 +26,7 @@ final class AudioTrackRecorder {
     init(source: AudioSource, fileURL: URL?) throws {
         self.source = source
         self.queue = DispatchQueue(label: "cadence.track.\(source.rawValue)", qos: .userInitiated)
-        self.chunker = SpeechChunker(source: source)
+        self.chunker = SpeechChunker(source: source, configuration: .live)
         if let fileURL {
             let settings: [String: Any] = [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
@@ -112,7 +112,7 @@ enum AudioMixdown {
         }
         try? FileManager.default.removeItem(at: output)
         guard let export = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetAppleM4A) else {
-            throw NSError(domain: "Cadence", code: 2, userInfo: [NSLocalizedDescriptionKey: "Export nicht möglich"])
+            throw NSError(domain: "Cadence", code: 2, userInfo: [NSLocalizedDescriptionKey: String(localized: "Export nicht möglich")])
         }
         export.outputURL = output
         export.outputFileType = .m4a

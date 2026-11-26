@@ -46,8 +46,12 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 if [ -f Resources/AppIcon.icns ]; then
   cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 fi
-# Ressourcen-Bundles der Abhängigkeiten (falls vorhanden)
+# Übersetzungen (de, en)
 shopt -s nullglob
+for lproj in Resources/*.lproj; do
+  cp -R "$lproj" "$APP/Contents/Resources/"
+done
+# Ressourcen-Bundles der Abhängigkeiten (falls vorhanden)
 for bundle in "$BIN_DIR"/*.bundle; do
   cp -R "$bundle" "$APP/Contents/Resources/"
 done

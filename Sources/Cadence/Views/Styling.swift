@@ -220,21 +220,21 @@ struct ModelStatusBanner: View {
         case .downloading(let progress):
             Banner(
                 kind: .info,
-                title: "Sprachmodell wird geladen – \(Int(progress * 100)) %",
+                title: String(localized: "Sprachmodell wird geladen – \(Int(progress * 100)) %"),
                 message: duringRecording
-                    ? "Einmaliger Download. Die Aufnahme läuft schon, das Transkript erscheint, sobald das Modell bereit ist."
-                    : "Einmaliger Download von \(models.modelLabel). Danach funktioniert alles offline.",
+                    ? String(localized: "Einmaliger Download. Die Aufnahme läuft schon, das Transkript erscheint, sobald das Modell bereit ist.")
+                    : String(localized: "Einmaliger Download von \(models.modelLabel). Danach funktioniert alles offline."),
                 progress: progress
             )
         case .loading:
-            Banner(kind: .info, title: "Sprachmodell wird vorbereitet …", message: "Beim ersten Start optimiert macOS das Modell für deinen Mac. Das kann ein paar Minuten dauern.", progress: nil)
+            Banner(kind: .info, title: String(localized: "Sprachmodell wird vorbereitet …"), message: String(localized: "Beim ersten Start optimiert macOS das Modell für deinen Mac. Das kann ein paar Minuten dauern."), progress: nil)
         case .failed(let message):
             Banner(
                 kind: .error,
                 title: message,
                 message: duringRecording
-                    ? "Keine Sorge: Die Aufnahme läuft weiter und wird nach dem Beenden transkribiert."
-                    : "Prüfe deine Internetverbindung und versuche es noch einmal."
+                    ? String(localized: "Keine Sorge: Die Aufnahme läuft weiter und wird nach dem Beenden transkribiert.")
+                    : String(localized: "Prüfe deine Internetverbindung und versuche es noch einmal.")
             ) {
                 HStack {
                     if let details = models.errorDetails {

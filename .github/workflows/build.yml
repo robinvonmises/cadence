@@ -25,8 +25,14 @@ jobs:
       - name: Tests (CadenceCore)
         run: swift test --filter CadenceCoreTests
 
+      - name: Übersetzungen prüfen
+        run: plutil -lint Resources/*.lproj/*.strings
+
       - name: App bauen
         run: ./scripts/build-app.sh
+
+      - name: Übersetzungen im App-Bundle
+        run: test -f build/Cadence.app/Contents/Resources/en.lproj/Localizable.strings
 
       - name: App verpacken
         run: ditto -c -k --keepParent build/Cadence.app build/Cadence.zip
