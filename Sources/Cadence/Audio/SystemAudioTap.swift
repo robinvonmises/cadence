@@ -148,6 +148,15 @@ final class SystemAudioTap {
 }
 
 extension AVAudioPCMBuffer {
+    /// Inhalt durch Stille ersetzen (für ein stummgeschaltetes Mikrofon).
+    func silence() {
+        let list = UnsafeMutableAudioBufferListPointer(mutableAudioBufferList)
+        for buffer in list {
+            guard let data = buffer.mData else { continue }
+            memset(data, 0, Int(buffer.mDataByteSize))
+        }
+    }
+
     /// Unabhängige Kopie, die den Callback überlebt.
     func deepCopy() -> AVAudioPCMBuffer? {
         guard frameLength > 0,

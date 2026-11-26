@@ -6,7 +6,9 @@ import Foundation
 final class MicrophoneCapture {
     typealias BufferHandler = @Sendable (AVAudioPCMBuffer) -> Void
 
-    private let engine = AVAudioEngine()
+    /// Pro Aufnahme neu: Eine wiederverwendete Engine behält nach Gerätewechseln oder
+    /// Echounterdrückung manchmal ein veraltetes Format und liefert dann gar nichts.
+    private var engine = AVAudioEngine()
     private(set) var isRunning = false
 
     static func requestPermission() async -> Bool {
@@ -22,8 +24,10 @@ final class MicrophoneCapture {
     /// - Parameter deviceUID: bestimmtes Eingangsgerät; `nil` = Systemstandard.
     func start(voiceProcessing: Bool, deviceUID: String? = nil, handler: @escaping BufferHandler) throws {
         guard !isRunning else { return }
+        engine = AVAudioEngine()
         let input = engine.inputNode
-        if let deviceUID, var deviceID = InputDevices.device(uid: deviceUID), let unit = input.audioUnit {
+        if let deviceUID, var deviceID = InputDevices.device(uid: deviceUID),
+           deviceID != InputDevices.defaultInput(), let unit = input.audioUnit {
             try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
                                            &deviceID, UInt32(MemoryLayout<AudioDeviceID>.size)),
                       String(localized: "Mikrofon auswählen"))

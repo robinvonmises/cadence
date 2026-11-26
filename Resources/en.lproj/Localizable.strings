@@ -349,3 +349,8 @@
 "Dein Mikrofon liefert keinen Ton. Das passiert oft mit Echounterdrückung und Bluetooth-Geräten. Schalte sie in den Einstellungen aus oder wähle ein anderes Mikrofon." = "Your microphone isn't delivering any sound. This often happens with echo cancellation and Bluetooth devices. Turn it off in Settings or choose a different microphone.";
 "Dein Mikrofon liefert keinen Ton. Prüfe, ob das richtige Mikrofon ausgewählt und nicht stummgeschaltet ist." = "Your microphone isn't delivering any sound. Check that the right microphone is selected and not muted.";
 "Bei Bluetooth- oder AirPlay-Lautsprechern als Ausgabe lässt Cadence die Echounterdrückung automatisch weg, sonst käme vom Mikrofon kein Ton." = "With Bluetooth or AirPlay speakers as output, Cadence skips echo cancellation automatically, otherwise the microphone would deliver no sound.";
+"Mikro an" = "Mic On";
+"Mikro aus" = "Mic Off";
+"Mikrofon wieder einschalten (⇧⌘M)" = "Turn the microphone back on (⇧⌘M)";
+"Mikrofon stummschalten (⇧⌘M)" = "Mute the microphone (⇧⌘M)";
+"Dein Mikrofon startet stumm, z. B. für Podcasts oder Videos. Im Gespräch schaltest du es mit einem Klick ein." = "Your microphone starts muted, e.g. for podcasts or videos. You can turn it on with one click during the conversation.";

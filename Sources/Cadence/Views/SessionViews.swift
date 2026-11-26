@@ -83,8 +83,21 @@ struct LiveSessionView: View {
 
             Spacer()
 
+            if recorder.hasMicrophone && recorder.isRecording {
+                Button {
+                    recorder.setMicMuted(!recorder.micMuted)
+                } label: {
+                    Label(recorder.micMuted ? "Mikro an" : "Mikro aus",
+                          systemImage: recorder.micMuted ? "mic.slash.fill" : "mic.fill")
+                }
+                .buttonStyle(.bordered)
+                .tint(recorder.micMuted ? .red : nil)
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .help(recorder.micMuted ? "Mikrofon wieder einschalten (⇧⌘M)" : "Mikrofon stummschalten (⇧⌘M)")
+            }
+
             HStack(spacing: 14) {
-                meter("mic.fill", String(localized: "Du"), recorder.micLevel, PartyColor.blue.color)
+                meter(recorder.micMuted ? "mic.slash.fill" : "mic.fill", String(localized: "Du"), recorder.micMuted ? 0 : recorder.micLevel, PartyColor.blue.color)
                 meter("speaker.wave.2.fill", String(localized: "Gegenseite"), recorder.systemLevel, PartyColor.orange.color)
             }
             .padding(.horizontal, 12)

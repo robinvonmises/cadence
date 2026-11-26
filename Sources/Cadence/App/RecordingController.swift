@@ -47,6 +47,17 @@ final class RecordingController: ObservableObject {
     private var systemRestarts = 0
     /// Hinweis während der Aufnahme, wenn eine Spur nichts liefert.
     @Published private(set) var audioWarning: String?
+    /// Eigenes Mikrofon gerade stumm (live umschaltbar).
+    @Published private(set) var micMuted = false
+    private let micMuteFlag = Locked(false)
+    var hasMicrophone: Bool { micTrack != nil }
+
+    func setMicMuted(_ muted: Bool) {
+        micMuted = muted
+        micMuteFlag.withLock { $0 = muted }
+        lastMicSound = Date()
+        if muted, audioWarning != nil, systemRestarts < 3 { audioWarning = nil }
+    }
     private var startDate = Date()
     private var liveTranscriptionWorked = true
 
@@ -77,18 +88,22 @@ final class RecordingController: ObservableObject {
         lastRecognizedNames = []
 
         let defaults = UserDefaults.standard
+        // Das Mikro läuft immer mit (falls erlaubt) und lässt sich live stumm schalten.
+        // „Mein Mikrofon aufnehmen“ aus = Start stummgeschaltet.
         let recordMicrophone = defaults.bool(forKey: SettingsKey.recordMicrophone)
-        if recordMicrophone, !(await MicrophoneCapture.requestPermission()) {
+        let micAllowed = await MicrophoneCapture.requestPermission()
+        if recordMicrophone, !micAllowed {
             fail(String(localized: "Kein Zugriff auf das Mikrofon. Bitte in Systemeinstellungen → Datenschutz & Sicherheit → Mikrofon erlauben."))
             return
         }
+        setMicMuted(!recordMicrophone)
 
         var newSession = draft.makeSession(ownerName: defaults.string(forKey: SettingsKey.ownerName) ?? Defaults.ownerName)
         newSession.sourceDescription = target.label
         let language = LanguageOption(rawValue: defaults.string(forKey: SettingsKey.language) ?? "de") ?? .german
         newSession.language = language.whisperCode
         newSession.consentConfirmed = consentConfirmed
-        newSession.audio = AudioFiles(system: "system.m4a", microphone: recordMicrophone ? "mikrofon.m4a" : nil)
+        newSession.audio = AudioFiles(system: "system.m4a", microphone: micAllowed ? "mikrofon.m4a" : nil)
         if consentConfirmed {
             newSession.addMarker(.consent, text: String(localized: "Einwilligung zur Aufzeichnung bestätigt"), at: 0)
         }
@@ -103,7 +118,7 @@ final class RecordingController: ObservableObject {
         }
         do {
             systemTrack = try AudioTrackRecorder(source: .system, fileURL: folder.appendingPathComponent("system.m4a"))
-            micTrack = recordMicrophone
+            micTrack = micAllowed
                 ? try AudioTrackRecorder(source: .microphone, fileURL: folder.appendingPathComponent("mikrofon.m4a"))
                 : nil
         } catch {
@@ -156,12 +171,17 @@ final class RecordingController: ObservableObject {
                 // liefert sie nur Stille – dann ohne aufnehmen, damit Cadence unabhängig von der Ausgabe läuft.
                 let voiceProcessing = defaults.bool(forKey: SettingsKey.voiceProcessing) && !SystemAudioTap.outputIsWireless
                 let deviceUID = defaults.string(forKey: SettingsKey.microphoneDevice).flatMap { $0.isEmpty ? nil : $0 }
-                try microphone.start(voiceProcessing: voiceProcessing, deviceUID: deviceUID) { buffer in micRecorder.append(buffer) }
+                let muted = micMuteFlag
+                try microphone.start(voiceProcessing: voiceProcessing, deviceUID: deviceUID) { buffer in
+                    // Stumm: Stille schreiben statt nichts, damit die Spur zeitlich synchron bleibt.
+                    if muted.withLock({ $0 }) { buffer.silence() }
+                    micRecorder.append(buffer)
+                }
             } catch {
-                systemTap.stop()
-                store.delete(newSession.id)
-                fail(String(localized: "Mikrofon konnte nicht gestartet werden: \(error.localizedDescription)"))
-                return
+                // Kein Grund, die ganze Aufnahme abzubrechen: Der Ton der App läuft weiter.
+                micTrack = nil
+                newSession.audio.microphone = nil
+                audioWarning = String(localized: "Mikrofon konnte nicht gestartet werden: \(error.localizedDescription)")
             }
         }
 
@@ -572,12 +592,12 @@ final class RecordingController: ObservableObject {
             }
         }
         // Mikrofon: Ein echtes Mikro rauscht immer ein wenig. Absolute Stille heißt, es kommt nichts an.
-        if micTrack != nil, Date().timeIntervalSince(lastMicSound) > 10 {
+        if micTrack != nil, !micMuted, Date().timeIntervalSince(lastMicSound) > 10 {
             let echo = UserDefaults.standard.bool(forKey: SettingsKey.voiceProcessing) && !SystemAudioTap.outputIsWireless
             audioWarning = echo
                 ? String(localized: "Dein Mikrofon liefert keinen Ton. Das passiert oft mit Echounterdrückung und Bluetooth-Geräten. Schalte sie in den Einstellungen aus oder wähle ein anderes Mikrofon.")
                 : String(localized: "Dein Mikrofon liefert keinen Ton. Prüfe, ob das richtige Mikrofon ausgewählt und nicht stummgeschaltet ist.")
-        } else if audioWarning != nil, micTrack == nil || Date().timeIntervalSince(lastMicSound) < 2, systemRestarts < 3 {
+        } else if audioWarning != nil, micTrack == nil || micMuted || Date().timeIntervalSince(lastMicSound) < 2, systemRestarts < 3 {
             audioWarning = nil
         }
     }

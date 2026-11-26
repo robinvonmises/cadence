@@ -23,6 +23,10 @@ enum InputDevices {
         .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     }
 
+    static func defaultInput() -> AudioDeviceID? {
+        try? AudioObjectID.system.read(kAudioHardwarePropertyDefaultInputDevice, default: AudioDeviceID(kAudioObjectUnknown))
+    }
+
     static func device(uid: String) -> AudioDeviceID? {
         all().first { $0.uid == uid }?.id
     }

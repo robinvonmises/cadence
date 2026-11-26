@@ -33,6 +33,16 @@ public struct SpeechChunker: Sendable {
         public var noiseFactor: Float = 3.0
 
         public init() {}
+
+        /// Für die Live-Ansicht: kürzere Abschnitte, damit Text schon während des Sprechens erscheint.
+        /// Auch bei Musik oder durchgehendem Reden (Podcast) wird spätestens nach 8 Sekunden geschnitten.
+        public static var live: Configuration {
+            var configuration = Configuration()
+            configuration.silenceToCut = 0.45
+            configuration.minChunkDuration = 1.0
+            configuration.maxChunkDuration = 8
+            return configuration
+        }
     }
 
     public let source: AudioSource

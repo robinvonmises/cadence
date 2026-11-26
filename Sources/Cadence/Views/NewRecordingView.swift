@@ -199,7 +199,7 @@ struct NewRecordingView: View {
             }
             Text(recordMicrophone
                  ? "Deine Stimme wird als eigene Spur aufgenommen und dir zugeordnet."
-                 : "Nur der Ton der App wird aufgenommen, z. B. für Podcasts oder Videos.")
+                 : "Dein Mikrofon startet stumm, z. B. für Podcasts oder Videos. Im Gespräch schaltest du es mit einem Klick ein.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

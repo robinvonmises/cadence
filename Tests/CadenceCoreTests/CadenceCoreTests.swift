@@ -56,6 +56,27 @@ struct SpeakerResolverTests {
         #expect(session.segments[2].origin == .cluster)
     }
 
+    @Test func testOneLiveTagDoesNotNameTwoVoices() {
+        var (session, _, anna, _) = makeSession()
+        // Nur einmal am Anfang „Anna spricht“ gedrückt – danach antwortet jemand anderes.
+        session.speakerTags = [SpeakerTag(time: 0, personID: anna.id)]
+        session.segments = [
+            TranscriptSegment(source: .system, start: 0, end: 10, text: "a1"),
+            TranscriptSegment(source: .system, start: 10, end: 14, text: "b1"),
+            TranscriptSegment(source: .system, start: 14, end: 24, text: "a2")
+        ]
+        let turns = [
+            DiarizedTurn(clusterID: 0, start: 0, end: 10),
+            DiarizedTurn(clusterID: 1, start: 10, end: 14),
+            DiarizedTurn(clusterID: 0, start: 14, end: 24)
+        ]
+        SpeakerResolver.finalize(&session, turns: turns)
+        #expect(session.clusterAssignments[0] == anna.id)
+        #expect(session.clusterAssignments[1] == nil)
+        #expect(session.segments.map(\.personID) == [anna.id, nil, anna.id])
+        #expect(session.displayName(for: session.segments[1]) == "Sprecher 2")
+    }
+
     @Test func testManualAssignmentWins() {
         var (session, _, anna, tom) = makeSession()
         session.speakerTags = [SpeakerTag(time: 0, personID: anna.id)]
