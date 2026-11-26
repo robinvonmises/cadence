@@ -506,7 +506,7 @@ final class RecordingController: ObservableObject {
     }
 
     private func transcribeFromFiles(_ session: inout Session, folder: URL, keepAssignments: Bool = false,
-                                     status: (String) -> Void) async {
+                                     status: @escaping @MainActor (String) -> Void) async {
         status(String(localized: "Sprachmodell wird geladen …"))
         guard await models.ensureReady() else {
             errorMessage = String(localized: "Das Sprachmodell ist nicht verfügbar. Die Aufnahme ist gespeichert – du kannst sie später über „Transkribieren“ nachholen.")
@@ -524,12 +524,17 @@ final class RecordingController: ObservableObject {
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
             status(String(localized: "Transkribiere \(label) …"))
             do {
-                segments += try await models.engine.transcribeFile(url, source: source, language: language) { _ in }
+                segments += try await models.engine.transcribeFile(url, source: source, language: language) { progress in
+                    let percent = Int((progress * 100).rounded())
+                    Task { @MainActor in status(String(localized: "Transkribiere \(label) … \(percent) %")) }
+                }
             } catch {
                 errorMessage = String(localized: "Transkription fehlgeschlagen: \(error.localizedDescription)")
             }
         }
         guard !segments.isEmpty else { return }
+        // Ganze Sätze statt Abschnittsstücke – liest sich besser und lässt sich sauber zuordnen.
+        segments = SentenceMerger.merge(segments)
         if keepAssignments {
             session.replaceTranscript(with: segments)
         } else {

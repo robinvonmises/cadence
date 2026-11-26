@@ -146,3 +146,44 @@ public extension Session {
         SpeakerResolver.resolve(&self)
     }
 }
+
+/// Fügt Whisper-Stücke zu ganzen Sätzen zusammen: Abschnittsgrenzen schneiden sonst mitten im Satz.
+public enum SentenceMerger {
+    /// Höchstens so lang wird ein zusammengefügtes Stück (Sekunden), damit Sprecherwechsel erkennbar bleiben.
+    public static let maxDuration: Double = 30
+    /// Größere Pausen beenden den Satz auch ohne Satzzeichen.
+    public static let maxGap: Double = 1.2
+
+    public static func merge(_ segments: [TranscriptSegment]) -> [TranscriptSegment] {
+        var result: [TranscriptSegment] = []
+        for source in [AudioSource.microphone, .system] {
+            var current: TranscriptSegment?
+            for segment in segments.filter({ $0.source == source }).sorted(by: { $0.start < $1.start }) {
+                if var open = current, canJoin(open, segment) {
+                    open.text = open.text + " " + segment.text
+                    open.end = max(open.end, segment.end)
+                    current = open
+                } else {
+                    if let open = current { result.append(open) }
+                    current = segment
+                }
+            }
+            if let open = current { result.append(open) }
+        }
+        return result.sorted { $0.start < $1.start }
+    }
+
+    static func canJoin(_ a: TranscriptSegment, _ b: TranscriptSegment) -> Bool {
+        guard a.manualPersonID == b.manualPersonID,
+              b.start - a.end <= maxGap,
+              max(a.end, b.end) - a.start <= maxDuration else { return false }
+        return !endsSentence(a.text)
+    }
+
+    static func endsSentence(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'“”„»«)]"))
+        guard let last = trimmed.last else { return true }
+        return ".!?…".contains(last)
+    }
+}

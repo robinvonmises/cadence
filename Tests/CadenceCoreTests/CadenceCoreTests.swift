@@ -95,6 +95,20 @@ struct SpeakerResolverTests {
         #expect(session.segments[1].personID == anna.id)
     }
 
+    @Test func testSentencesAreJoinedAcrossChunks() {
+        let merged = SentenceMerger.merge([
+            TranscriptSegment(source: .system, start: 0, end: 7.8, text: "Wir sollten das Budget"),
+            TranscriptSegment(source: .system, start: 8, end: 10, text: "nächste Woche freigeben."),
+            TranscriptSegment(source: .system, start: 10.2, end: 12, text: "Einverstanden?"),
+            TranscriptSegment(source: .microphone, start: 9, end: 11, text: "Ja, klingt gut"),
+            TranscriptSegment(source: .system, start: 20, end: 22, text: "Nach langer Pause")
+        ])
+        let system = merged.filter { $0.source == .system }.map(\.text)
+        #expect(system == ["Wir sollten das Budget nächste Woche freigeben.", "Einverstanden?", "Nach langer Pause"])
+        #expect(merged.filter { $0.source == .microphone }.count == 1)
+        #expect(merged.map(\.start) == merged.map(\.start).sorted())
+    }
+
     @Test func testManualAssignmentWins() {
         var (session, _, anna, tom) = makeSession()
         session.speakerTags = [SpeakerTag(time: 0, personID: anna.id)]
