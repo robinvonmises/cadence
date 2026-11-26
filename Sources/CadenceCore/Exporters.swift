@@ -145,6 +145,43 @@ public struct SessionExporter {
         "- `\(TimeFormat.clock(marker.time))` \(marker.kind.emoji) \(marker.text)"
     }
 
+    private func actionLine(_ item: ActionItem) -> String {
+        "- [\(item.done ? "x" : " ")] \(item.text)" + (item.owner.map { " (\($0))" } ?? "")
+    }
+
+    /// Zusammenfassung als Text zum Kopieren.
+    public func summaryText() -> String? {
+        guard let summary = session.summary else { return nil }
+        var out = "\(session.title)\n\n\(summary.overview)\n"
+        if !summary.keyPoints.isEmpty { out += "\n" + summary.keyPoints.map { "• \($0)" }.joined(separator: "\n") + "\n" }
+        if !summary.decisions.isEmpty { out += "\nEntscheidungen:\n" + summary.decisions.map { "• \($0)" }.joined(separator: "\n") + "\n" }
+        if !summary.actionItems.isEmpty { out += "\nAufgaben:\n" + summary.actionItems.map(actionLine).joined(separator: "\n") + "\n" }
+        return out
+    }
+
+    /// Transkript in Stücke für ein Sprachmodell mit begrenztem Kontext – nie mitten im Wortbeitrag geteilt
+    /// (außer ein einzelner Beitrag ist selbst zu lang).
+    public func transcriptChunks(maxCharacters: Int) -> [String] {
+        var chunks: [String] = []
+        var current = ""
+        for turn in turns() {
+            var line = "[\(TimeFormat.clock(turn.start))] \(turn.name): \(turn.text)"
+            while line.count > maxCharacters {
+                if !current.isEmpty { chunks.append(current); current = "" }
+                let cut = line.index(line.startIndex, offsetBy: maxCharacters)
+                chunks.append(String(line[..<cut]))
+                line = String(line[cut...])
+            }
+            if current.count + line.count + 1 > maxCharacters, !current.isEmpty {
+                chunks.append(current)
+                current = ""
+            }
+            current += (current.isEmpty ? "" : "\n") + line
+        }
+        if !current.isEmpty { chunks.append(current) }
+        return chunks
+    }
+
     // MARK: - Formate
 
     public func markdown() -> String {
@@ -182,6 +219,18 @@ public struct SessionExporter {
         if !session.sourceDescription.isEmpty { out += "| **Quelle** | \(session.sourceDescription) |\n" }
         out += "| **Einwilligung zur Aufzeichnung** | \(session.consentConfirmed ? "bestätigt" : "nicht dokumentiert") |\n\n"
         out += "## Teilnehmer\n\n\(participantsSection())\n\n"
+        if let summary = session.summary {
+            out += "## Zusammenfassung\n\n\(summary.overview)\n\n"
+            if !summary.keyPoints.isEmpty {
+                out += summary.keyPoints.map { "- \($0)" }.joined(separator: "\n") + "\n\n"
+            }
+            if !summary.decisions.isEmpty {
+                out += "### Entscheidungen (automatisch erkannt)\n\n" + summary.decisions.map { "- \($0)" }.joined(separator: "\n") + "\n\n"
+            }
+            if !summary.actionItems.isEmpty {
+                out += "### Aufgaben (automatisch erkannt)\n\n" + summary.actionItems.map(actionLine).joined(separator: "\n") + "\n\n"
+            }
+        }
         out += section("Entscheidungen", [.decision], empty: "_Keine markiert._")
         out += section("Aufgaben", [.todo], empty: "_Keine markiert._")
         out += section("Wichtige Stellen & Notizen", [.highlight, .note], empty: "_Keine._")

@@ -44,6 +44,16 @@ final class RecordingController: ObservableObject {
     private var startDate = Date()
     private var liveTranscriptionWorked = true
 
+    // Live-Stimmerkennung
+    private var liveDiarizationContinuation: AsyncStream<SpeechChunk>.Continuation?
+    private var liveDiarizationTask: Task<Void, Never>?
+    private var liveRegistry = LiveSpeakerRegistry()
+    private var liveTurns: [DiarizedTurn] = []
+    /// Stimmen, die du live per Klick einer Person zugeordnet hast (Cluster → Person).
+    private var pinnedClusters: [Int: UUID] = [:]
+    /// Ist die Live-Stimmerkennung in dieser Aufnahme aktiv?
+    @Published private(set) var liveDiarizationActive = false
+
     init(store: SessionStore, models: ModelManager) {
         self.store = store
         self.models = models
@@ -96,9 +106,20 @@ final class RecordingController: ObservableObject {
         // Abschnitte beider Spuren landen in einer gemeinsamen Warteschlange.
         let (stream, continuation) = AsyncStream<SpeechChunk>.makeStream()
         chunkContinuation = continuation
+        let liveDiarization = defaults.bool(forKey: SettingsKey.liveDiarization) && defaults.bool(forKey: SettingsKey.runDiarization)
+        var liveStream: AsyncStream<SpeechChunk>?
+        if liveDiarization {
+            let (stream, liveContinuation) = AsyncStream<SpeechChunk>.makeStream()
+            liveStream = stream
+            liveDiarizationContinuation = liveContinuation
+        }
+        let liveContinuation = liveDiarizationContinuation
         for track in [systemTrack, micTrack].compactMap({ $0 }) {
             let source = track.source
-            track.onChunk = { chunk in continuation.yield(chunk) }
+            track.onChunk = { chunk in
+                continuation.yield(chunk)
+                if source == .system { liveContinuation?.yield(chunk) }
+            }
             track.onLevel = { [weak self] level in
                 Task { @MainActor in
                     guard let self else { return }
@@ -138,6 +159,15 @@ final class RecordingController: ObservableObject {
         transcriptionTask = Task { [weak self] in
             await self?.runTranscription(stream: stream, language: language.whisperCode)
         }
+        liveRegistry = LiveSpeakerRegistry()
+        liveTurns = []
+        pinnedClusters = [:]
+        liveDiarizationActive = liveStream != nil
+        if let liveStream {
+            liveDiarizationTask = Task { [weak self] in
+                await self?.runLiveDiarization(stream: liveStream)
+            }
+        }
     }
 
     private func runTranscription(stream: AsyncStream<SpeechChunk>, language: String?) async {
@@ -160,6 +190,94 @@ final class RecordingController: ObservableObject {
         guard !segments.isEmpty, var current = session else { return }
         current.segments.append(contentsOf: segments)
         current.segments.sort { $0.start < $1.start }
+        if !liveTurns.isEmpty { SpeakerResolver.applyClusters(liveTurns, to: &current.segments) }
+        SpeakerResolver.resolve(&current)
+        session = current
+    }
+
+    // MARK: - Live-Stimmerkennung
+
+    /// Sammelt Sprache der Gegenseite und trennt sie alle ~20 Sekunden in Stimmen.
+    /// Die Fenster werden über Stimm-Fingerabdrücke zu dauerhaften Sprechern verbunden.
+    private func runLiveDiarization(stream: AsyncStream<SpeechChunk>) async {
+        var buffer: [SpeechChunk] = []
+        var bufferedSeconds = 0.0
+        for await chunk in stream {
+            buffer.append(chunk)
+            bufferedSeconds += chunk.duration
+            guard bufferedSeconds >= 20 else { continue }
+            await diarizeLiveWindow(buffer)
+            // Etwas Überlappung behalten, damit Sprecherwechsel an der Grenze nicht verloren gehen.
+            if let last = buffer.last, last.duration < 8 {
+                buffer = [last]
+                bufferedSeconds = last.duration
+            } else {
+                buffer = []
+                bufferedSeconds = 0
+            }
+        }
+        // Nach dem Stoppen übernimmt die vollständige Sprechertrennung den Rest.
+    }
+
+    private func diarizeLiveWindow(_ chunks: [SpeechChunk]) async {
+        // Abschnitte aneinanderhängen und merken, wo jeder im Gesprächsverlauf lag.
+        var samples: [Float] = []
+        var offsets: [(local: Double, absolute: Double, duration: Double)] = []
+        for chunk in chunks {
+            offsets.append((Double(samples.count) / SpeechChunker.sampleRate, chunk.startTime, chunk.duration))
+            samples += chunk.samples
+        }
+        guard let output = try? await diarizer.diarize(samples: samples, expectedSpeakers: nil),
+              !output.turns.isEmpty else { return }
+
+        var speech: [Int: Double] = [:]
+        for turn in output.turns { speech[turn.clusterID, default: 0] += turn.end - turn.start }
+        let mapping = liveRegistry.register(output.embeddings, speech: speech)
+
+        // Lokale Zeiten zurück auf die Gesprächszeit abbilden (an Abschnittsgrenzen teilen).
+        var turns: [DiarizedTurn] = []
+        for turn in output.turns {
+            guard let global = mapping[turn.clusterID] else { continue }
+            for piece in offsets {
+                let start = max(turn.start, piece.local), end = min(turn.end, piece.local + piece.duration)
+                guard end > start else { continue }
+                turns.append(DiarizedTurn(clusterID: global,
+                                          start: piece.absolute + (start - piece.local),
+                                          end: piece.absolute + (end - piece.local)))
+            }
+        }
+        // Neuere Fenster ersetzen ältere im überlappenden Bereich.
+        if let first = turns.map(\.start).min(), let last = turns.map(\.end).max() {
+            liveTurns.removeAll { $0.start >= first && $0.end <= last }
+        }
+        liveTurns += turns
+        liveTurns.sort { $0.start < $1.start }
+        applyLiveClusters()
+    }
+
+    /// Cluster auf das Transkript anwenden und – wo möglich – Personen zuordnen:
+    /// deine Klicks zuerst, dann deine Live-Markierungen, dann bekannte Stimmen.
+    private func applyLiveClusters() {
+        guard var current = session, !liveTurns.isEmpty else { return }
+        SpeakerResolver.applyClusters(liveTurns, to: &current.segments)
+        current.clusterEmbeddings = liveRegistry.centroids
+        var keep = pinnedClusters
+        for (cluster, _) in current.recognizedClusters ?? [:] {
+            if let person = current.clusterAssignments[cluster] { keep[cluster] = keep[cluster] ?? person }
+        }
+        current.clusterAssignments = SpeakerResolver.inferClusterAssignments(
+            segments: current.segments, tags: current.speakerTags, existing: keep
+        )
+        store.voices.recognize(in: &current)
+        SpeakerResolver.resolve(&current)
+        session = current
+    }
+
+    /// Live: Diese Stimme gehört dieser Person (gilt für alles, was sie sagt – auch künftig).
+    func assignLiveCluster(_ cluster: Int, to personID: UUID) {
+        pinnedClusters[cluster] = personID
+        guard var current = session else { return }
+        current.clusterAssignments[cluster] = personID
         SpeakerResolver.resolve(&current)
         session = current
     }
@@ -181,6 +299,12 @@ final class RecordingController: ObservableObject {
     /// spricht sie vermutlich noch – dann gilt sie ab Beginn des Beitrags als aktueller Sprecher.
     func assignTurn(segmentIDs: [UUID], start: Double, to personID: UUID, isLatest: Bool) {
         guard var current = session else { return }
+        // Ist die Stimme schon erkannt, gleich die ganze Stimme zuordnen.
+        let clusters = Set(current.segments.filter { segmentIDs.contains($0.id) }.compactMap(\.clusterID))
+        if clusters.count == 1, let cluster = clusters.first {
+            pinnedClusters[cluster] = personID
+            current.clusterAssignments[cluster] = personID
+        }
         current.assign(segments: segmentIDs, to: personID)
         if isLatest && isRecording {
             current.tagSpeaker(personID, at: start)
@@ -237,10 +361,15 @@ final class RecordingController: ObservableObject {
         systemTrack?.finish()
         micTrack?.finish()
         chunkContinuation?.finish()
+        liveDiarizationContinuation?.finish()
         session = current
 
         phase = .finishing("Restliche Abschnitte werden transkribiert …")
         await transcriptionTask?.value
+        await liveDiarizationTask?.value
+        liveDiarizationTask = nil
+        liveDiarizationContinuation = nil
+        liveDiarizationActive = false
         current = session ?? current
 
         let folder = store.folder(for: current)
@@ -254,6 +383,17 @@ final class RecordingController: ObservableObject {
         }
         await diarize(&current, systemURL: systemURL) { [weak self] status in
             self?.phase = .finishing(status)
+        }
+
+        if UserDefaults.standard.bool(forKey: SettingsKey.autoSummary), Summarizer.isAvailable, !current.segments.isEmpty {
+            phase = .finishing(String(localized: "Zusammenfassung wird erstellt …"))
+            do {
+                current.summary = try await Summarizer.summarize(current) { [weak self] status in
+                    self?.phase = .finishing(status)
+                }
+            } catch {
+                // Kein Drama: Die Zusammenfassung lässt sich später erneut anstoßen.
+            }
         }
 
         if UserDefaults.standard.bool(forKey: SettingsKey.saveAudio) {
@@ -305,6 +445,22 @@ final class RecordingController: ObservableObject {
             self?.reprocessing = (id, status)
         }
         try? store.save(session)
+        reprocessing = nil
+    }
+
+    /// Zusammenfassung für ein gespeichertes Gespräch (neu) erstellen.
+    func summarize(_ id: UUID) async {
+        guard reprocessing == nil, let entry = store.entries.first(where: { $0.id == id }) else { return }
+        var session = entry.session
+        reprocessing = (id, String(localized: "Zusammenfassung wird erstellt …"))
+        do {
+            session.summary = try await Summarizer.summarize(session) { [weak self] status in
+                self?.reprocessing = (id, status)
+            }
+            try? store.save(session)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
         reprocessing = nil
     }
 
@@ -370,6 +526,8 @@ final class RecordingController: ObservableObject {
         micTrack = nil
         chunkContinuation?.finish()
         chunkContinuation = nil
+        liveDiarizationContinuation?.finish()
+        liveDiarizationContinuation = nil
         phase = .idle
     }
 

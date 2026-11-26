@@ -257,3 +257,42 @@ struct VoiceProfileTests {
         #expect(next.clusterAssignments[0] == lisa.id)
     }
 }
+
+struct SummaryTests {
+    @Test func testTranscriptChunksRespectLimitAndKeepTurns() {
+        var session = Session.new(title: "Lang", ownerName: "Wayne")
+        session.segments = (0..<40).map { i in
+            TranscriptSegment(source: i % 2 == 0 ? .microphone : .system, start: Double(i * 10), end: Double(i * 10 + 5),
+                              text: String(repeating: "Wort ", count: 20))
+        }
+        SpeakerResolver.resolve(&session)
+        let chunks = SessionExporter(session: session).transcriptChunks(maxCharacters: 400)
+        #expect(chunks.count > 1)
+        #expect(chunks.allSatisfy { $0.count <= 400 })
+        #expect(chunks.allSatisfy { $0.hasPrefix("[") })
+    }
+
+    @Test func testSummaryAppearsInProtocol() {
+        var session = Session.new(title: "Kickoff", ownerName: "Wayne")
+        session.summary = MeetingSummary(overview: "Projekt startet im Januar.", keyPoints: ["Budget steht"],
+                                         decisions: ["Start am 15.1."], actionItems: [ActionItem(text: "Angebot schicken", owner: "Wayne")])
+        let proto = SessionExporter(session: session).protocolMarkdown()
+        #expect(proto.contains("## Zusammenfassung\n\nProjekt startet im Januar."))
+        #expect(proto.contains("- [ ] Angebot schicken (Wayne)"))
+        #expect(SessionExporter(session: session).summaryText()?.contains("• Start am 15.1.") == true)
+    }
+}
+
+struct LiveSpeakerRegistryTests {
+    @Test func testKeepsSpeakersStableAcrossWindows() {
+        var registry = LiveSpeakerRegistry()
+        let anna: [Float] = [1, 0, 0.1], tom: [Float] = [0, 1, 0.1]
+        let first = registry.register([0: anna, 1: tom], speech: [0: 5, 1: 5])
+        // Nächstes Fenster: lokale Nummern vertauscht, Stimmen leicht anders, dazu jemand Neues.
+        let second = registry.register([0: [0.05, 0.95, 0.1], 1: [0.95, 0.05, 0.1], 2: [0, 0, 1]], speech: [0: 4, 1: 4, 2: 3])
+        #expect(second[0] == first[1])
+        #expect(second[1] == first[0])
+        #expect(second[2] != first[0] && second[2] != first[1])
+        #expect(registry.centroids.count == 3)
+    }
+}

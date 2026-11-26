@@ -155,6 +155,41 @@ public struct Marker: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+// MARK: - Zusammenfassung
+
+/// Eine Aufgabe aus dem Gespräch (automatisch erkannt oder von Hand ergänzt).
+public struct ActionItem: Identifiable, Codable, Hashable, Sendable {
+    public var id: UUID
+    public var text: String
+    /// Wer sich darum kümmert, falls im Gespräch genannt.
+    public var owner: String?
+    public var done: Bool
+
+    public init(id: UUID = UUID(), text: String, owner: String? = nil, done: Bool = false) {
+        self.id = id
+        self.text = text
+        self.owner = owner
+        self.done = done
+    }
+}
+
+/// Lokal erzeugte Zusammenfassung eines Gesprächs.
+public struct MeetingSummary: Codable, Hashable, Sendable {
+    public var overview: String
+    public var keyPoints: [String]
+    public var decisions: [String]
+    public var actionItems: [ActionItem]
+    public var createdAt: Date
+
+    public init(overview: String, keyPoints: [String] = [], decisions: [String] = [], actionItems: [ActionItem] = [], createdAt: Date = Date()) {
+        self.overview = overview
+        self.keyPoints = keyPoints
+        self.decisions = decisions
+        self.actionItems = actionItems
+        self.createdAt = createdAt
+    }
+}
+
 // MARK: - Session
 
 public struct AudioFiles: Codable, Hashable, Sendable {
@@ -201,6 +236,8 @@ public struct Session: Identifiable, Codable, Hashable, Sendable {
     public var clusterEmbeddings: [Int: [Float]]?
     /// Cluster, die automatisch über ein Stimmprofil erkannt wurden (Cluster → Profil-ID).
     public var recognizedClusters: [Int: UUID]?
+    /// Zusammenfassung, Entscheidungen und Aufgaben (optional, ältere Sessions haben keine).
+    public var summary: MeetingSummary?
 
     public init(
         id: UUID = UUID(),

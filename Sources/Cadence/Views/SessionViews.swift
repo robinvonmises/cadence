@@ -63,6 +63,11 @@ struct LiveSessionView: View {
                         Text("REC").font(.caption.weight(.heavy)).foregroundStyle(Theme.record)
                     }
                     Text(recorder.session?.sourceDescription ?? "")
+                    if recorder.liveDiarizationActive {
+                        Label("Stimmen werden live erkannt", systemImage: "waveform.badge.magnifyingglass")
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(Theme.accent)
+                    }
                     if recorder.backlog > 1 {
                         Text("· \(recorder.backlog) Abschnitte warten").foregroundStyle(.orange)
                     }
@@ -178,6 +183,9 @@ struct CopyMenu: View {
                 Button("Nur Text") { copy(speakers: false, timestamps: false) }
             }
             Divider()
+            if let summary = SessionExporter(session: session).summaryText() {
+                Button("Zusammenfassung") { put(summary) }
+            }
             Button("Protokoll (Markdown)") { put(SessionExporter(session: session).protocolMarkdown()) }
             Button("Transkript (Markdown)") { put(SessionExporter(session: session).markdown()) }
         } label: {
@@ -249,6 +257,11 @@ struct SavedSessionView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 10)
+            }
+            if !draft.segments.isEmpty {
+                SummaryCard(session: $draft)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 10)
             }
             Divider()
             TranscriptView(
@@ -507,6 +520,120 @@ final class AudioPlayer: ObservableObject {
                     self.timer?.invalidate()
                 }
             }
+        }
+    }
+}
+
+// MARK: - Zusammenfassung
+
+/// Zusammenfassung, Entscheidungen und Aufgaben über dem Transkript (einklappbar).
+struct SummaryCard: View {
+    @EnvironmentObject private var recorder: RecordingController
+    @Binding var session: Session
+    @AppStorage("summaryExpanded") private var expanded = true
+
+    private var isWorking: Bool { recorder.reprocessing?.id == session.id }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.bold))
+                            .rotationEffect(.degrees(expanded ? 90 : 0))
+                        Image(systemName: "sparkles").foregroundStyle(Theme.gradient)
+                        Text("Zusammenfassung").font(.headline)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                if isWorking {
+                    ProgressView().controlSize(.small)
+                } else if Summarizer.isAvailable && !session.segments.isEmpty {
+                    Button(session.summary == nil ? "Zusammenfassen" : "Neu erstellen") {
+                        Task { await recorder.summarize(session.id) }
+                    }
+                    .disabled(recorder.reprocessing != nil)
+                }
+            }
+
+            if expanded {
+                if let summary = session.summary {
+                    content(summary)
+                } else if let reason = Summarizer.unavailableReason {
+                    Text(reason).font(.callout).foregroundStyle(.secondary)
+                } else if !isWorking {
+                    Text("Noch keine Zusammenfassung. Cadence kann Inhalt, Entscheidungen und Aufgaben lokal mit Apple Intelligence zusammenfassen.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .card(padding: 14)
+    }
+
+    @ViewBuilder
+    private func content(_ summary: MeetingSummary) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(summary.overview).textSelection(.enabled)
+                if !summary.keyPoints.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(summary.keyPoints, id: \.self) { point in
+                            Label(point, systemImage: "circle.fill")
+                                .labelStyle(BulletLabelStyle())
+                        }
+                    }
+                }
+                if !summary.decisions.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Entscheidungen").sectionTitle()
+                        ForEach(summary.decisions, id: \.self) { decision in
+                            Label(decision, systemImage: "checkmark.seal.fill").foregroundStyle(.primary)
+                        }
+                    }
+                }
+                if !summary.actionItems.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Aufgaben").sectionTitle()
+                        ForEach(summary.actionItems) { item in
+                            Toggle(isOn: Binding(
+                                get: { item.done },
+                                set: { done in
+                                    guard let index = session.summary?.actionItems.firstIndex(where: { $0.id == item.id }) else { return }
+                                    session.summary?.actionItems[index].done = done
+                                }
+                            )) {
+                                HStack(spacing: 6) {
+                                    Text(item.text).strikethrough(item.done)
+                                    if let owner = item.owner {
+                                        Text(owner).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            .toggleStyle(.checkbox)
+                        }
+                    }
+                }
+                Text("Automatisch erstellt mit Apple Intelligence – bitte prüfen.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 260)
+    }
+}
+
+private struct BulletLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            configuration.icon.font(.system(size: 5)).foregroundStyle(.secondary)
+            configuration.title
         }
     }
 }

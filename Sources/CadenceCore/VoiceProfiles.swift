@@ -190,3 +190,54 @@ public extension Array where Element == VoiceProfile {
         removeAll { $0.samples.isEmpty }
     }
 }
+
+/// Hält Stimmen während eines laufenden Gesprächs über mehrere kurze Diarization-Fenster hinweg
+/// zusammen: Jedes Fenster liefert eigene, lokale Cluster-Nummern; die Registry ordnet sie per
+/// Stimm-Fingerabdruck dauerhaften Nummern für das ganze Gespräch zu.
+public struct LiveSpeakerRegistry: Sendable {
+    public private(set) var centroids: [Int: [Float]] = [:]
+    private var weights: [Int: Double] = [:]
+    private var nextID = 0
+    public var threshold: Float
+
+    public init(threshold: Float = 0.5) {
+        self.threshold = threshold
+    }
+
+    /// Lokale Cluster eines Fensters → dauerhafte Cluster. `speech` = Redezeit je lokalem Cluster.
+    public mutating func register(_ local: [Int: [Float]], speech: [Int: Double]) -> [Int: Int] {
+        var candidates: [(local: Int, global: Int, score: Float)] = []
+        for (localID, embedding) in local {
+            for (globalID, centroid) in centroids {
+                let score = VoiceMatcher.cosine(embedding, centroid)
+                if score >= threshold { candidates.append((localID, globalID, score)) }
+            }
+        }
+        var mapping: [Int: Int] = [:]
+        var usedGlobal = Set<Int>()
+        for candidate in candidates.sorted(by: { $0.score > $1.score }) {
+            guard mapping[candidate.local] == nil, !usedGlobal.contains(candidate.global) else { continue }
+            mapping[candidate.local] = candidate.global
+            usedGlobal.insert(candidate.global)
+        }
+        for localID in local.keys.sorted() where mapping[localID] == nil {
+            mapping[localID] = nextID
+            nextID += 1
+        }
+        // Fingerabdrücke nachführen (gewichteter Mittelwert nach Redezeit).
+        for (localID, globalID) in mapping {
+            guard let embedding = local[localID] else { continue }
+            let w = max(speech[localID] ?? 1, 0.5)
+            if let old = centroids[globalID], old.count == embedding.count {
+                let total = (weights[globalID] ?? 0) + w
+                let a = Float((weights[globalID] ?? 0) / total), b = Float(w / total)
+                centroids[globalID] = zip(old, embedding).map { $0 * a + $1 * b }
+                weights[globalID] = total
+            } else {
+                centroids[globalID] = embedding
+                weights[globalID] = w
+            }
+        }
+        return mapping
+    }
+}

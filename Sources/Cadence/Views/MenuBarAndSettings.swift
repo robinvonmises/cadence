@@ -34,13 +34,13 @@ struct MenuBarView: View {
             Button("Neue Aufnahme …") {
                 navigation.selection = .newRecording
                 openWindow(id: "main")
-                NSApp.activate(ignoringOtherApps: true)
+                MainWindow.show()
             }
         }
         Divider()
         Button("Cadence öffnen") {
             openWindow(id: "main")
-            NSApp.activate(ignoringOtherApps: true)
+            MainWindow.show()
         }
         Button("Beenden") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
@@ -61,6 +61,8 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.consentReminder) private var consentReminder = true
     @AppStorage(SettingsKey.runDiarization) private var runDiarization = true
     @AppStorage(SettingsKey.globalHotkeys) private var globalHotkeys = true
+    @AppStorage(SettingsKey.liveDiarization) private var liveDiarization = true
+    @AppStorage(SettingsKey.autoSummary) private var autoSummary = true
 
     var body: some View {
         TabView {
@@ -106,7 +108,13 @@ struct SettingsView: View {
                         Text(option.label).tag(option.rawValue)
                     }
                 }
-                Toggle("Stimmen nach dem Gespräch automatisch trennen (Diarization)", isOn: $runDiarization)
+                Toggle("Stimmen automatisch trennen (Diarization)", isOn: $runDiarization)
+                Toggle("Stimmen schon während des Gesprächs erkennen", isOn: $liveDiarization)
+                    .disabled(!runDiarization)
+                Toggle("Nach dem Gespräch automatisch zusammenfassen", isOn: $autoSummary)
+                if let reason = Summarizer.unavailableReason {
+                    Text(reason).font(.caption).foregroundStyle(.secondary)
+                }
                 Toggle("Echounterdrückung fürs Mikrofon (ohne Kopfhörer)", isOn: $voiceProcessing)
                 Text("Alles läuft lokal. Modelle werden einmalig heruntergeladen und danach offline genutzt.")
                     .font(.caption)
