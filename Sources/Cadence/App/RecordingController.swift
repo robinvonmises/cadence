@@ -152,7 +152,9 @@ final class RecordingController: ObservableObject {
         }
         if let micRecorder = micTrack {
             do {
-                let voiceProcessing = defaults.bool(forKey: SettingsKey.voiceProcessing)
+                // Echounterdrückung koppelt das Mikro an die Ausgabe. Mit Bluetooth- oder AirPlay-Lautsprechern
+                // liefert sie nur Stille – dann ohne aufnehmen, damit Cadence unabhängig von der Ausgabe läuft.
+                let voiceProcessing = defaults.bool(forKey: SettingsKey.voiceProcessing) && !SystemAudioTap.outputIsWireless
                 let deviceUID = defaults.string(forKey: SettingsKey.microphoneDevice).flatMap { $0.isEmpty ? nil : $0 }
                 try microphone.start(voiceProcessing: voiceProcessing, deviceUID: deviceUID) { buffer in micRecorder.append(buffer) }
             } catch {
@@ -571,7 +573,7 @@ final class RecordingController: ObservableObject {
         }
         // Mikrofon: Ein echtes Mikro rauscht immer ein wenig. Absolute Stille heißt, es kommt nichts an.
         if micTrack != nil, Date().timeIntervalSince(lastMicSound) > 10 {
-            let echo = UserDefaults.standard.bool(forKey: SettingsKey.voiceProcessing)
+            let echo = UserDefaults.standard.bool(forKey: SettingsKey.voiceProcessing) && !SystemAudioTap.outputIsWireless
             audioWarning = echo
                 ? String(localized: "Dein Mikrofon liefert keinen Ton. Das passiert oft mit Echounterdrückung und Bluetooth-Geräten. Schalte sie in den Einstellungen aus oder wähle ein anderes Mikrofon.")
                 : String(localized: "Dein Mikrofon liefert keinen Ton. Prüfe, ob das richtige Mikrofon ausgewählt und nicht stummgeschaltet ist.")

@@ -32,16 +32,25 @@ final class SystemAudioTap {
     /// dann bliebe der Tap stumm. In dem Fall lieber die eingebauten Lautsprecher nehmen.
     static func clockDevice() throws -> AudioDeviceID {
         let output = try AudioObjectID.defaultSystemOutputDevice()
-        let unreliable: Set<UInt32> = [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE,
-                                        kAudioDeviceTransportTypeAirPlay]
-        let transport = (try? output.read(kAudioDevicePropertyTransportType, default: UInt32(0))) ?? 0
-        guard unreliable.contains(transport) else { return output }
+        guard isWireless(output) else { return output }
         let devices = (try? AudioObjectID.system.readArray(kAudioHardwarePropertyDevices)) ?? []
         let builtIn = devices.first { id in
             (try? id.read(kAudioDevicePropertyTransportType, default: UInt32(0))) == kAudioDeviceTransportTypeBuiltIn
                 && hasOutput(id)
         }
         return builtIn ?? output
+    }
+
+    /// Bluetooth oder AirPlay – solche Ausgaben vertragen sich nicht mit Taktgeber und Echounterdrückung.
+    static func isWireless(_ device: AudioDeviceID) -> Bool {
+        let transport = (try? device.read(kAudioDevicePropertyTransportType, default: UInt32(0))) ?? 0
+        return [kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE,
+                kAudioDeviceTransportTypeAirPlay].contains(transport)
+    }
+
+    /// Ist die aktuelle Standard-Ausgabe drahtlos?
+    static var outputIsWireless: Bool {
+        (try? AudioObjectID.defaultSystemOutputDevice()).map(isWireless) ?? false
     }
 
     private static func hasOutput(_ id: AudioDeviceID) -> Bool {

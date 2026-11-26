@@ -137,6 +137,11 @@ struct SettingsView: View {
                     Text(reason).font(.caption).foregroundStyle(.secondary)
                 }
                 Toggle("Echounterdrückung fürs Mikrofon (ohne Kopfhörer)", isOn: $voiceProcessing)
+                if voiceProcessing {
+                    Text("Bei Bluetooth- oder AirPlay-Lautsprechern als Ausgabe lässt Cadence die Echounterdrückung automatisch weg, sonst käme vom Mikrofon kein Ton.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Text("Alles läuft lokal. Modelle werden einmalig heruntergeladen und danach offline genutzt.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
