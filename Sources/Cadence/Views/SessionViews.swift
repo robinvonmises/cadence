@@ -30,7 +30,7 @@ struct LiveSessionView: View {
             Divider()
             TranscriptView(session: sessionBinding, isLive: true, onAssignTurn: { turn, personID, isLatest in
                 recorder.assignTurn(segmentIDs: turn.segments.map(\.id), start: turn.start, to: personID, isLatest: isLatest)
-            })
+            }, pending: recorder.partials.values.sorted { $0.start < $1.start })
             if recorder.isRecording {
                 Divider()
                 SpeakerDock(session: sessionBinding)

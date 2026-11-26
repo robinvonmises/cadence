@@ -33,6 +33,8 @@
 	<string>14.4</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Cadence zeigt den Text live Wort für Wort mit Apples Spracherkennung auf diesem Mac.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Cadence nimmt dein Mikrofon als eigene Spur auf, damit deine Beiträge im Transkript dir zugeordnet werden. Alles bleibt auf diesem Mac.</string>
 	<key>NSAudioCaptureUsageDescription</key>

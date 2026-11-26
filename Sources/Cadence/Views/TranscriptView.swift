@@ -11,6 +11,8 @@ struct TranscriptView: View {
     /// Schnellzuordnung „Wer war das?“ – (Wortbeitrag, Person, ist der neueste Beitrag).
     /// Ohne eigene Aktion werden die Sätze des Beitrags direkt zugeordnet.
     var onAssignTurn: ((Turn, UUID, Bool) -> Void)?
+    /// Live: Text, der gerade gesprochen wird (noch nicht fertig erkannt).
+    var pending: [TranscriptSegment] = []
 
     @State private var autoScroll = true
     @State private var editing: TranscriptSegment?
@@ -76,7 +78,7 @@ struct TranscriptView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {
-                    if session.segments.isEmpty {
+                    if session.segments.isEmpty && pending.isEmpty {
                         emptyState
                     }
                     let allItems = items
@@ -98,6 +100,10 @@ struct TranscriptView: View {
                                 .id(item.id)
                         }
                     }
+                    ForEach(pending) { segment in
+                        PendingLine(name: pendingName(for: segment), text: segment.text,
+                                    isOwner: segment.source == .microphone)
+                    }
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.horizontal, 24)
@@ -106,6 +112,10 @@ struct TranscriptView: View {
             .onChange(of: session.segments.count) { _, _ in
                 guard isLive, autoScroll else { return }
                 withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            .onChange(of: pending.map(\.text)) { _, _ in
+                guard isLive, autoScroll else { return }
+                proxy.scrollTo("bottom", anchor: .bottom)
             }
             .overlay(alignment: .bottomTrailing) {
                 if isLive && !session.segments.isEmpty {
@@ -129,6 +139,12 @@ struct TranscriptView: View {
                 editing = nil
             }
         }
+    }
+
+    private func pendingName(for segment: TranscriptSegment) -> String {
+        if segment.source == .microphone { return session.microphoneOwner?.name ?? String(localized: "Ich") }
+        let tagged = SpeakerResolver.liveTaggedPerson(at: segment.start, tags: session.speakerTags)
+        return session.person(tagged)?.name ?? "…"
     }
 
     private func assign(_ turn: Turn, to personID: UUID, isLatest: Bool) {
@@ -388,5 +404,28 @@ private struct EditSegmentSheet: View {
             }
         }
         .padding(20)
+    }
+}
+
+/// Live-Text, der gerade entsteht – blass, bis er fertig erkannt ist.
+private struct PendingLine: View {
+    let name: String
+    let text: String
+    let isOwner: Bool
+
+    var body: some View {
+        VStack(alignment: isOwner ? .trailing : .leading, spacing: 4) {
+            Text(name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(text)
+                .foregroundStyle(.secondary)
+                .italic()
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .animation(.easeOut(duration: 0.15), value: text)
+        }
+        .frame(maxWidth: .infinity, alignment: isOwner ? .trailing : .leading)
     }
 }
